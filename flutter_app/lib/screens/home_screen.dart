@@ -60,6 +60,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _socketSubscription = _socketService.events.listen((event) {
       if (event['type'] == 'tripStopped') {
         final data = event['data'];
+        _locationService?.stopTracking();
+        _tripPollingTimer?.cancel();
         _showTripStoppedDialog(data);
       } else if (event['type'] == 'forceLogout') {
         final reason = event['data']?['reason'] as String? ?? 'Tu cuenta fue desactivada.';
@@ -102,8 +104,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showTripStoppedDialog(Map<String, dynamic> data) {
-    // Stop tracking locally - trip already stopped on backend
-    _locationService?.stopTracking();
     if (mounted) {
       setState(() {
         _activeTrip = null;

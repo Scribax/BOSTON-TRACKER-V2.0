@@ -34,9 +34,12 @@ class LocationService {
 
   String? _deliveryName;
   Timer? _heartbeatTimer;
+  Timer? _flushTimer;
+  Timer? _watchdogTimer;
   Position? _lastKnownPosition;
   DateTime? _lastSentTime;
-  final List<LocationData> _pendingQueue = [];
+  DateTime? _lastPositionReceived;
+  final List<_QueuedLocation> _pendingQueue = [];
   bool _isFlushing = false;
   final Battery _battery = Battery();
   int? _lastBatteryLevel;
@@ -124,6 +127,24 @@ class LocationService {
       _lastSentTime = now;
     });
 
+    // Flush timer: retry queued locations every 15s independently of GPS
+    _flushTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      if (!_isTracking || _pendingQueue.isEmpty) return;
+      _logger.i('Flush timer: retrying ${_pendingQueue.length} queued locations');
+      await _flushQueue();
+    });
+
+    // Watchdog: restart GPS stream if no position received for 60s
+    _lastPositionReceived = DateTime.now();
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
+      if (!_isTracking) return;
+      final elapsed = DateTime.now().difference(_lastPositionReceived ?? DateTime.now()).inSeconds;
+      if (elapsed > 55) {
+        _logger.w('Watchdog: no GPS position for ${elapsed}s — restarting stream');
+        _restartPositionStream();
+      }
+    });
+
     // Start foreground service to prevent OS from killing the app
     await ForegroundService.startService(
       deliveryName: deliveryName ?? 'repartidor',
@@ -145,7 +166,10 @@ class LocationService {
     _positionStream = Geolocator.getPositionStream(
       locationSettings: locationSettings,
     ).listen(_onPositionUpdate, onError: (e) {
-      _logger.e('Position stream error: $e');
+      _logger.e('Position stream error: $e — restarting in 5s');
+      Future.delayed(const Duration(seconds: 5), () {
+        if (_isTracking) _restartPositionStream();
+      });
     });
   }
 
@@ -157,13 +181,44 @@ class LocationService {
     _lastKnownPosition = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
     _lastSentTime = null;
     _logger.i('Stopped location tracking');
     ForegroundService.stopService();
   }
 
+  void _restartPositionStream() {
+    _positionStream?.cancel();
+    _positionStream = null;
+    if (!_isTracking) return;
+    final locationSettings = AndroidSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+      intervalDuration: const Duration(seconds: 5),
+      foregroundNotificationConfig: const ForegroundNotificationConfig(
+        notificationText: 'Boston Tracker está usando tu ubicación',
+        notificationTitle: 'Rastreo activo',
+        enableWakeLock: true,
+      ),
+    );
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen(_onPositionUpdate, onError: (e) {
+      _logger.e('Position stream error: $e — restarting in 5s');
+      Future.delayed(const Duration(seconds: 5), () {
+        if (_isTracking) _restartPositionStream();
+      });
+    });
+    _lastPositionReceived = DateTime.now();
+    _logger.i('GPS stream restarted');
+  }
+
   void _onPositionUpdate(Position position) async {
     if (!_isTracking) return;
+    _lastPositionReceived = DateTime.now();
 
     // Filter low accuracy locations (more tolerant for older devices)
     if (position.accuracy > 100) {
@@ -279,18 +334,25 @@ class LocationService {
   Future<void> _flushQueue() async {
     if (_isFlushing || _pendingQueue.isEmpty) return;
     _isFlushing = true;
-    final batch = List<LocationData>.from(_pendingQueue);
+    final batch = List<_QueuedLocation>.from(_pendingQueue);
     for (final item in batch) {
       try {
         await _apiService.updateLocation(
-          latitude: item.latitude,
-          longitude: item.longitude,
-          accuracy: item.accuracy,
-          speed: item.speed,
-          heading: item.heading,
+          latitude: item.data.latitude,
+          longitude: item.data.longitude,
+          accuracy: item.data.accuracy,
+          speed: item.data.speed,
+          heading: item.data.heading,
+          batteryLevel: item.batteryLevel,
         );
         _pendingQueue.remove(item);
-      } catch (_) {
+      } catch (e) {
+        final msg = e.toString();
+        if (msg.contains('404')) {
+          _logger.w('Trip not found (404) during flush — stopping tracking');
+          _pendingQueue.clear();
+          stopTracking();
+        }
         break; // Still offline, stop trying
       }
     }
@@ -320,7 +382,7 @@ class LocationService {
         return;
       }
       _logger.w('Offline: queuing location (queue size: ${_pendingQueue.length + 1})');
-      if (_pendingQueue.length < 500) _pendingQueue.add(data);
+      if (_pendingQueue.length < 500) _pendingQueue.add(_QueuedLocation(data, _lastBatteryLevel));
     }
   }
 
@@ -409,4 +471,10 @@ class TripMetrics {
     required this.totalTime,
     required this.validLocations,
   });
+}
+
+class _QueuedLocation {
+  final LocationData data;
+  final int? batteryLevel;
+  _QueuedLocation(this.data, this.batteryLevel);
 }

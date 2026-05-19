@@ -86,6 +86,7 @@ export default function TrackingPage() {
         accuracy: data.currentLocation?.accuracy ?? data.accuracy ?? 0,
         speed: data.speed ?? 0,
         heading: data.heading ?? 0,
+        batteryLevel: data.batteryLevel ?? null,
         timestamp: data.currentLocation?.timestamp ?? data.timestamp ?? new Date().toISOString(),
       };
       setDeliveries((prev) =>

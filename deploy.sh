@@ -74,18 +74,10 @@ else
 fi
 
 log "Configurando base de datos..."
-sudo -u postgres psql <<EOF
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'boston_user') THEN
-    CREATE USER boston_user WITH PASSWORD 'boston123';
-  END IF;
-END
-\$\$;
-CREATE DATABASE boston_tracker OWNER boston_user;
-GRANT ALL PRIVILEGES ON DATABASE boston_tracker TO boston_user;
-ALTER USER boston_user CREATEDB;
-EOF
+su -c "psql -c \"DO \\\$\\\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'boston_user') THEN CREATE USER boston_user WITH PASSWORD 'boston123'; END IF; END \\\$\\\$;\"" postgres
+su -c "psql -c \"CREATE DATABASE boston_tracker OWNER boston_user;\" 2>/dev/null || true" postgres
+su -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE boston_tracker TO boston_user;\"" postgres
+su -c "psql -c \"ALTER USER boston_user CREATEDB;\"" postgres
 log "Base de datos 'boston_tracker' lista"
 
 # ------------------------------------------------------------

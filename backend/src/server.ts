@@ -103,8 +103,8 @@ const locationLimiter = rateLimit({
   },
 });
 
-// Temporarily disabled rate limiter causing 502 errors
-// app.use(limiter);
+app.use(limiter);
+app.use('/api/deliveries', locationLimiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -154,10 +154,21 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   console.log(`🔌 Client connected: ${socket.id} (User: ${socket.data.userId})`);
 
-  // Join admin room
+  // Join admin room — only allow users with admin role
   socket.on('join-admin', () => {
-    socket.join('admins');
-    console.log(`👤 ${socket.id} joined admin room`);
+    const token = socket.handshake.auth.token as string | undefined;
+    if (!token) return;
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role?: string };
+      if (decoded.role === 'admin') {
+        socket.join('admins');
+        console.log(`👤 ${socket.id} joined admin room (verified)`);
+      } else {
+        console.warn(`⚠️ Non-admin tried to join admin room: ${socket.id}`);
+      }
+    } catch {
+      console.warn(`⚠️ Invalid token in join-admin: ${socket.id}`);
+    }
   });
 
   // 🔥 CRITICAL: Join delivery room for individual notifications

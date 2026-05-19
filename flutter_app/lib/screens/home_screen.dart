@@ -30,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   TripMetrics? _liveMetrics;
   StreamSubscription<TripMetrics>? _metricsSubscription;
   StreamSubscription<Map<String, dynamic>>? _socketSubscription;
+  StreamSubscription<void>? _unauthorizedSubscription;
   Timer? _tripPollingTimer;
   Timer? _clockTimer;
   int _elapsedSeconds = 0;
@@ -45,7 +46,14 @@ class _HomeScreenState extends State<HomeScreen> {
     await _storageService.init();
     _apiService = ApiService(_storageService);
     _locationService = LocationService(_apiService);
-    
+
+    _unauthorizedSubscription = _apiService.onUnauthorized.listen((_) {
+      _locationService?.stopTracking();
+      _socketService.disconnect();
+      _storageService.clearAll();
+      if (mounted) context.read<AuthBloc>().add(LogoutRequested());
+    });
+
     final user = await _storageService.getUser();
     if (user != null && user.token != null) {
       _socketService.connect(user.id, user.token!);
@@ -580,10 +588,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _metricsSubscription?.cancel();
     _socketSubscription?.cancel();
+    _unauthorizedSubscription?.cancel();
     _tripPollingTimer?.cancel();
     _clockTimer?.cancel();
     _locationService?.dispose();
     _socketService.dispose();
+    _apiService.dispose();
     super.dispose();
   }
 }

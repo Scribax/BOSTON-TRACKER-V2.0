@@ -24,8 +24,8 @@ const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
 /**
  * Generate JWT token
  */
-const generateToken = (id: string): string => {
-  return jwt.sign({ id }, JWT_SECRET as string, { expiresIn: JWT_EXPIRE } as any);
+const generateToken = (id: string, role: string): string => {
+  return jwt.sign({ id, role }, JWT_SECRET as string, { expiresIn: JWT_EXPIRE } as any);
 };
 
 /**
@@ -97,7 +97,7 @@ export const login = async (
     await user.save({ validate: false } as any);
 
     // Generate token
-    const token = generateToken(user.id);
+    const token = generateToken(user.id, user.role);
 
     res.json({
       success: true,

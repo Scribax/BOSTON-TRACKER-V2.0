@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import '../models/user.dart';
@@ -8,6 +9,10 @@ class ApiService {
   final StorageService _storage;
   late final Dio _dio;
   final Logger _logger = Logger();
+  User? _cachedUser;
+  final _unauthorizedController = StreamController<void>.broadcast();
+
+  Stream<void> get onUnauthorized => _unauthorizedController.stream;
 
   static const String baseUrl = 'http://186.64.123.15:5000/api';
 
@@ -15,7 +20,7 @@ class ApiService {
     _dio = Dio(BaseOptions(
       baseUrl: baseUrl,
       connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 20),
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -106,7 +111,7 @@ class ApiService {
   // Trips
   Future<ApiResponse<Trip>> startTrip() async {
     try {
-      final user = await _storage.getUser();
+      final user = await getCachedUser();
       if (user == null) {
         return ApiResponse.error('Usuario no autenticado');
       }
@@ -128,7 +133,7 @@ class ApiService {
 
   Future<ApiResponse<Trip>> stopTrip() async {
     try {
-      final user = await _storage.getUser();
+      final user = await getCachedUser();
       if (user == null) {
         return ApiResponse.error('Usuario no autenticado');
       }
@@ -179,7 +184,7 @@ class ApiService {
     int? batteryLevel,
   }) async {
     try {
-      final user = await _storage.getUser();
+      final user = await getCachedUser();
       if (user == null) {
         return ApiResponse.error('Usuario no autenticado');
       }
@@ -220,7 +225,7 @@ class ApiService {
     required double longitude,
   }) async {
     try {
-      final user = await _storage.getUser();
+      final user = await getCachedUser();
       if (user == null) {
         return ApiResponse.error('Usuario no autenticado');
       }
@@ -252,15 +257,30 @@ class ApiService {
     }
   }
 
+  Future<User?> getCachedUser() async {
+    _cachedUser ??= await _storage.getUser();
+    return _cachedUser;
+  }
+
+  void invalidateCache() {
+    _cachedUser = null;
+  }
+
+  void dispose() {
+    _unauthorizedController.close();
+  }
+
   ApiResponse<T> _handleDioError<T>(DioException e) {
     if (e.response != null) {
       final statusCode = e.response?.statusCode;
       final message = e.response?.data?['message'] ?? 'Error del servidor';
-      
+
       if (statusCode == 401) {
+        _cachedUser = null;
+        _unauthorizedController.add(null);
         return ApiResponse.error('Sesión expirada', code: 401);
       }
-      
+
       return ApiResponse.error(message, code: statusCode);
     } else {
       return ApiResponse.error('Error de conexión');

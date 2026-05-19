@@ -53,6 +53,7 @@ export default function Map({ deliveries, selectedId, onSelect }: MapProps) {
       if (!delivery.location) return;
 
       const { latitude, longitude } = delivery.location;
+      if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
       const isSelected = delivery.id === selectedId;
 
       const icon = L.divIcon({
@@ -87,10 +88,10 @@ export default function Map({ deliveries, selectedId, onSelect }: MapProps) {
     // Center on selected
     if (selectedId) {
       const selected = deliveries.find((d) => d.id === selectedId);
-      if (selected?.location) {
-        mapRef.current.setView([selected.location.latitude, selected.location.longitude], 15, {
-          animate: true,
-        });
+      const lat = selected?.location?.latitude;
+      const lng = selected?.location?.longitude;
+      if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
+        mapRef.current.setView([lat, lng], 15, { animate: true });
       }
     }
   }, [deliveries, selectedId, onSelect]);

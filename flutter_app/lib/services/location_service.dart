@@ -331,6 +331,8 @@ class LocationService {
     _lastPosition = position;
   }
 
+  Future<void> flushQueue() => _flushQueue();
+
   Future<void> _flushQueue() async {
     if (_isFlushing || _pendingQueue.isEmpty) return;
     _isFlushing = true;

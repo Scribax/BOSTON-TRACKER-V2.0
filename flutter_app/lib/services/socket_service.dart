@@ -1,17 +1,46 @@
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:logger/logger.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 
 class SocketService {
   io.Socket? _socket;
   final Logger _logger = Logger();
   final _eventController = StreamController<Map<String, dynamic>>.broadcast();
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  String? _lastUserId;
+  String? _lastToken;
+  bool _wasOffline = false;
 
   Stream<Map<String, dynamic>> get events => _eventController.stream;
 
   bool get isConnected => _socket?.connected ?? false;
 
+  void _listenConnectivity() {
+    _connectivitySub?.cancel();
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+      final hasNetwork = results.any((r) => r != ConnectivityResult.none);
+      if (!hasNetwork) {
+        _wasOffline = true;
+        _logger.w('Network lost');
+      } else if (_wasOffline) {
+        _wasOffline = false;
+        _logger.i('Network restored — reconnecting socket');
+        if (_lastUserId != null && _lastToken != null) {
+          _socket?.disconnect();
+          Future.delayed(const Duration(milliseconds: 500), () {
+            connect(_lastUserId!, _lastToken!);
+          });
+        }
+        _eventController.add({'type': 'networkRestored', 'data': {}});
+      }
+    });
+  }
+
   void connect(String userId, String token) {
+    _lastUserId = userId;
+    _lastToken = token;
+    _listenConnectivity();
     if (_socket != null && _socket!.connected) {
       _logger.w('Socket already connected');
       return;
@@ -82,6 +111,8 @@ class SocketService {
 
   void disconnect() {
     _logger.i('Disconnecting socket...');
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;

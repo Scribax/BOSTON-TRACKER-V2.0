@@ -66,6 +66,8 @@ class _HomeScreenState extends State<HomeScreen> {
       } else if (event['type'] == 'forceLogout') {
         final reason = event['data']?['reason'] as String? ?? 'Tu cuenta fue desactivada.';
         _forceLogout(reason);
+      } else if (event['type'] == 'networkRestored') {
+        _locationService?.flushQueue();
       }
     });
   }

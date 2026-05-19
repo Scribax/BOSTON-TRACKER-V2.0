@@ -63,7 +63,7 @@ router.get('/history', authenticate, authorize('admin'), async (
           startTime: (trip as any).startTime,
           endTime: (trip as any).endTime,
           totalMileage: (trip as any).mileage || 0,
-          totalTime: (trip as any).duration || trip.getDuration() || 0,
+          totalTime: ((trip as any).duration || trip.getDuration() || 0) * 60,
           averageSpeed: (trip as any).averageSpeed || trip.getAverageSpeed() || 0,
           maxSpeed,
           status: (trip as any).status,

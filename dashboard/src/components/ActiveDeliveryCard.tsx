@@ -62,7 +62,7 @@ export default function ActiveDeliveryCard({ delivery, isSelected, onSelect, onS
         <div className="text-center p-2 bg-gray-50 rounded-lg">
           <Route className="w-4 h-4 text-gray-400 mx-auto mb-1" />
           <p className="text-xs font-semibold text-gray-900">
-            {formatDistance(delivery.metrics?.totalDistance || 0)}
+            {formatDistance((delivery.metrics?.totalDistance || 0) * 1000)}
           </p>
           <p className="text-[10px] text-gray-500">Distancia</p>
         </div>

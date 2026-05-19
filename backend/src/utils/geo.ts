@@ -92,7 +92,7 @@ export const calculateTotalDistance = (locations: Location[]): number => {
 export const filterGPSNoise = (
   locations: Location[],
   minDistanceMeters = 15,
-  maxSpeedKmh = 60
+  maxSpeedKmh = 120
 ): Location[] => {
   if (!locations || locations.length < 2) return locations;
 

@@ -33,8 +33,11 @@ export default function HistoryPage() {
     }
   };
 
+  const [hideShort, setHideShort] = useState(true);
+
   const filtered = useMemo(() => {
     return trips.filter((t) => {
+      if (hideShort && (t.totalTime || 0) < 60) return false;
       if (filterDelivery) {
         const name = (t.delivery?.name || '').toLowerCase();
         const empId = (t.delivery?.employeeId || '').toLowerCase();
@@ -44,7 +47,7 @@ export default function HistoryPage() {
       if (filterDateTo && new Date(t.startTime) > new Date(filterDateTo + 'T23:59:59')) return false;
       return true;
     });
-  }, [trips, filterDelivery, filterDateFrom, filterDateTo]);
+  }, [trips, filterDelivery, filterDateFrom, filterDateTo, hideShort]);
 
   const openRoute = async (trip: Trip) => {
     setSelectedTrip(trip);
@@ -98,6 +101,10 @@ export default function HistoryPage() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500">{filtered.length} de {trips.length} viajes</span>
+            <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+              <input type="checkbox" checked={hideShort} onChange={e => setHideShort(e.target.checked)} className="rounded" />
+              Ocultar &lt;1min
+            </label>
             {filtered.length > 0 && (
               <button onClick={exportCSV}
                 className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors">

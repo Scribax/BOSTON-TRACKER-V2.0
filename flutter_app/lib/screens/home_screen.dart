@@ -293,11 +293,15 @@ class _HomeScreenState extends State<HomeScreen> {
           _locationService?.stopTracking();
           _tripPollingTimer?.cancel();
           if (mounted) {
+            final trip = _activeTrip;
             setState(() {
               _activeTrip = null;
               _liveMetrics = null;
             });
-            _showTripStoppedDialog({'totalMileage': 0, 'duration': 0});
+            _showTripStoppedDialog({
+              'totalMileage': trip?.mileage ?? 0,
+              'duration': trip?.duration ?? 0,
+            });
           }
         }
       } catch (_) {}

@@ -26,7 +26,7 @@ router.get('/my-trip', authenticate, authorize('delivery'), getMyActiveTrip);
 
 // Trip management (delivery or admin)
 router.post('/:id/start', authenticate, authorizeOwnership, startDeliveryTrip);
-router.post('/:id/stop', authenticate, authorizeOwnership, stopDeliveryTrip);
+router.post('/:id/stop', authenticate, authorize('admin'), stopDeliveryTrip);
 router.post('/:id/location', authenticate, authorizeOwnership, updateLocation);
 router.post('/:id/metrics', authenticate, authorizeOwnership, updateMetrics);
 router.post('/:id/inactivity-alert', authenticate, authorizeOwnership, handleInactivityAlert);

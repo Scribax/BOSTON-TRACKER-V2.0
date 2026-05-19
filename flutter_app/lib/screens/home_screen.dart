@@ -297,18 +297,29 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
             _buildTripCard(),
-            const SizedBox(height: 24),
-            SizedBox(
+            const SizedBox(height: 16),
+            Container(
               width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _stopTrip,
-                icon: const Icon(Icons.stop),
-                label: const Text('DETENER VIAJE'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.dangerColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'El viaje solo puede ser finalizado por el administrador.',
+                      style: TextStyle(
+                        color: Colors.orange.shade800,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ] else ...[

@@ -17,12 +17,21 @@ export function getSocket(): Socket {
     });
 
     socket.on('connect', () => {
-      console.log('Socket connected');
+      console.log('✅ Socket connected:', socket?.id);
       socket?.emit('join-admin');
+      console.log('📡 Emitted join-admin');
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('❌ Socket connection error:', err.message);
     });
 
     socket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
+      console.log('🔌 Socket disconnected:', reason);
+    });
+
+    socket.on('locationUpdate', (data: any) => {
+      console.log('📍 locationUpdate received:', data);
     });
   }
   return socket;

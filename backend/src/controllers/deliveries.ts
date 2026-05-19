@@ -103,6 +103,7 @@ export const getActiveDeliveries = async (
             latitude: (lastLoc as any).latitude,
             longitude: (lastLoc as any).longitude,
             accuracy: (lastLoc as any).accuracy,
+            batteryLevel: (lastLoc as any).batteryLevel ?? null,
             timestamp: (lastLoc as any).timestamp,
           } : null,
           metrics: rtMetrics,

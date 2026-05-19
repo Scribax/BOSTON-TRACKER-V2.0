@@ -43,7 +43,13 @@ export default function TrackingPage() {
         location: t.lastLocation || null,
         metrics: t.metrics || null,
       }));
-      setDeliveries(mapped);
+      setDeliveries((prev) => mapped.map((d) => {
+        const existing = prev.find((p) => p.id === d.id);
+        if (existing && d.location && d.location.batteryLevel == null && existing.location?.batteryLevel != null) {
+          return { ...d, location: { ...d.location, batteryLevel: existing.location.batteryLevel } };
+        }
+        return d;
+      }));
     } catch (err) {
       console.error('Error fetching active trips:', err);
     }

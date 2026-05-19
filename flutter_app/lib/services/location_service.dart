@@ -32,6 +32,9 @@ class LocationService {
       : 0;
 
   String? _deliveryName;
+  Timer? _heartbeatTimer;
+  Position? _lastKnownPosition;
+  DateTime? _lastSentTime;
 
   LocationService(this._apiService);
 
@@ -96,6 +99,26 @@ class LocationService {
 
     _logger.i('Started location tracking');
 
+    // Heartbeat: send location every 30s even if not moving
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+      if (!_isTracking || _lastKnownPosition == null) return;
+      final now = DateTime.now();
+      if (_lastSentTime != null && now.difference(_lastSentTime!).inSeconds < 28) return;
+      _logger.i('Heartbeat: sending location (delivery is stationary)');
+      final p = _lastKnownPosition!;
+      await _sendLocationToBackend(LocationData(
+        latitude: p.latitude,
+        longitude: p.longitude,
+        accuracy: p.accuracy,
+        speed: 0,
+        heading: p.heading,
+        timestamp: now,
+        totalDistanceKm: _totalDistance,
+        durationSeconds: DateTime.now().difference(_startTime!).inSeconds,
+      ));
+      _lastSentTime = now;
+    });
+
     // Start foreground service to prevent OS from killing the app
     await ForegroundService.startService(
       deliveryName: deliveryName ?? 'repartidor',
@@ -126,6 +149,10 @@ class LocationService {
     _positionStream?.cancel();
     _positionStream = null;
     _lastPosition = null;
+    _lastKnownPosition = null;
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    _lastSentTime = null;
     _logger.i('Stopped location tracking');
     ForegroundService.stopService();
   }
@@ -140,6 +167,7 @@ class LocationService {
     }
 
     _validLocations++;
+    _lastKnownPosition = position;
 
     // Calculate distance from last position
     double distanceKm = 0;
@@ -223,6 +251,7 @@ class LocationService {
     _metricsController.add(metrics);
 
     // Send to backend
+    _lastSentTime = DateTime.now();
     await _sendLocationToBackend(locationData);
     // Throttle metrics to every 5 seconds
     final now = DateTime.now();

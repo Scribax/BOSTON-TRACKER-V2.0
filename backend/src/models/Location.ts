@@ -14,19 +14,17 @@ class LocationModel
   extends Model<LocationAttributes, LocationCreationAttributes>
   implements LocationAttributes
 {
-  public id!: string;
-  public tripId!: string;
-  public latitude!: number;
-  public longitude!: number;
-  public accuracy?: number;
-  public speed?: number;
-  public heading?: number;
-  public batteryLevel?: number;
-  public timestamp!: Date;
-
-  // Timestamps
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
+  declare id: string;
+  declare tripId: string;
+  declare latitude: number;
+  declare longitude: number;
+  declare accuracy: number | undefined;
+  declare speed: number | undefined;
+  declare heading: number | undefined;
+  declare batteryLevel: number | undefined;
+  declare timestamp: Date;
+  declare readonly createdAt: Date;
+  declare readonly updatedAt: Date;
 }
 
 LocationModel.init(

@@ -58,8 +58,44 @@ class _HomeScreenState extends State<HomeScreen> {
       if (event['type'] == 'tripStopped') {
         final data = event['data'];
         _showTripStoppedDialog(data);
+      } else if (event['type'] == 'forceLogout') {
+        final reason = event['data']?['reason'] as String? ?? 'Tu cuenta fue desactivada.';
+        _forceLogout(reason);
       }
     });
+  }
+
+  void _forceLogout(String reason) {
+    _locationService?.stopTracking();
+    _tripPollingTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _activeTrip = null;
+      _liveMetrics = null;
+    });
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.block, color: AppTheme.dangerColor),
+            SizedBox(width: 8),
+            Text('Sesión cerrada'),
+          ],
+        ),
+        content: Text(reason),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              context.read<AuthBloc>().add(LogoutRequested());
+            },
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showTripStoppedDialog(Map<String, dynamic> data) {

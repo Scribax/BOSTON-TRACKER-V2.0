@@ -6,7 +6,9 @@ import { Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { Op } from 'sequelize';
 
-import { User, Trip } from '@models/index';
+import { User, Trip, Location } from '@models/index';
+import { Server as SocketIOServer } from 'socket.io';
+import { calculateTotalDistance, filterGPSNoise, calculateAverageSpeed } from '@utils/geo';
 import type {
   ApiResponse,
   AuthenticatedRequest,
@@ -339,6 +341,15 @@ export const updateUser = async (
 
     await user.save();
 
+    // If deactivating, stop active trip and force logout on device
+    if (isActive === false) {
+      const io = getIO(req);
+      await stopActiveTrip(id, io);
+      io.to(`delivery-${id}`).emit('forceLogout', {
+        reason: 'Tu cuenta fue desactivada por el administrador.',
+      });
+    }
+
     res.json({
       success: true,
       message: 'Usuario actualizado exitosamente',
@@ -358,6 +369,37 @@ export const updateUser = async (
 // DELETE USER (Admin only)
 // ==========================================
 
+const getIO = (req: AuthenticatedRequest): SocketIOServer => {
+  return (req as AuthenticatedRequest & { io: SocketIOServer }).io;
+};
+
+const stopActiveTrip = async (userId: string, io: SocketIOServer) => {
+  const activeTrip = await Trip.findOne({ where: { deliveryId: userId, status: 'active' } });
+  if (!activeTrip) return;
+
+  const locations = await Location.findAll({
+    where: { tripId: (activeTrip as any).id },
+    order: [['timestamp', 'ASC']],
+  });
+  const filtered = filterGPSNoise(locations as unknown as Location[]);
+  const finalMileage = calculateTotalDistance(filtered);
+  const finalDuration = activeTrip.getDuration();
+  const finalAvgSpeed = calculateAverageSpeed(filtered, finalDuration);
+
+  (activeTrip as any).endTime = new Date();
+  (activeTrip as any).status = 'completed';
+  (activeTrip as any).mileage = finalMileage;
+  (activeTrip as any).duration = finalDuration;
+  (activeTrip as any).averageSpeed = finalAvgSpeed;
+  await activeTrip.save();
+
+  io.to('admins').emit('tripStopped', {
+    tripId: (activeTrip as any).id,
+    deliveryId: userId,
+    endTime: (activeTrip as any).endTime,
+  });
+};
+
 export const deleteUser = async (
   req: AuthenticatedRequest,
   res: Response<ApiResponse>
@@ -376,7 +418,17 @@ export const deleteUser = async (
       return;
     }
 
-    // Hard delete - actually remove the user
+    const io = getIO(req);
+
+    // Stop any active trip first
+    await stopActiveTrip(id, io);
+
+    // Force logout on the device via socket
+    io.to(`delivery-${id}`).emit('forceLogout', {
+      reason: 'Tu cuenta fue eliminada por el administrador.',
+    });
+
+    // Hard delete
     await user.destroy();
 
     res.json({

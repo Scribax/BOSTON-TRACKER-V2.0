@@ -72,6 +72,11 @@ class SocketService {
       _eventController.add({'type': 'notification', 'data': data});
     });
 
+    _socket!.on('forceLogout', (data) {
+      _logger.w('Force logout received: $data');
+      _eventController.add({'type': 'forceLogout', 'data': data});
+    });
+
     _socket!.connect();
   }
 

@@ -257,7 +257,13 @@ class LocationService {
 
     // Send to backend
     _lastSentTime = DateTime.now();
-    _lastBatteryLevel = await _battery.batteryLevel.catchError((_) => _lastBatteryLevel ?? -1);
+    try {
+      final b = await _battery.batteryLevel;
+      _lastBatteryLevel = b;
+      _logger.d('🔋 Battery level: $b%');
+    } catch (e) {
+      _logger.w('Battery read failed: $e');
+    }
     await _sendLocationToBackend(locationData);
     // Throttle metrics to every 5 seconds
     final now = DateTime.now();

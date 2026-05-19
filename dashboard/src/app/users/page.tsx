@@ -11,7 +11,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [form, setForm] = useState({ name: '', employeeId: '', password: '', role: 'delivery', phone: '' });
+  const [form, setForm] = useState({ name: '', employeeId: '', email: '', password: '', role: 'delivery', phone: '' });
 
   useEffect(() => {
     fetchUsers();
@@ -40,7 +40,7 @@ export default function UsersPage() {
       }
       setShowModal(false);
       setEditingUser(null);
-      setForm({ name: '', employeeId: '', password: '', role: 'delivery', phone: '' });
+      setForm({ name: '', employeeId: '', email: '', password: '', role: 'delivery', phone: '' });
       fetchUsers();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Error guardando usuario');
@@ -49,7 +49,7 @@ export default function UsersPage() {
 
   const handleEdit = (user: User) => {
     setEditingUser(user);
-    setForm({ name: user.name, employeeId: user.employeeId, password: '', role: user.role, phone: user.phone || '' });
+    setForm({ name: user.name, employeeId: user.employeeId, email: user.email || '', password: '', role: user.role, phone: user.phone || '' });
     setShowModal(true);
   };
 
@@ -83,7 +83,7 @@ export default function UsersPage() {
           <button
             onClick={() => {
               setEditingUser(null);
-              setForm({ name: '', employeeId: '', password: '', role: 'delivery', phone: '' });
+              setForm({ name: '', employeeId: '', email: '', password: '', role: 'delivery', phone: '' });
               setShowModal(true);
             }}
             className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg flex items-center gap-2 transition-colors"
@@ -201,6 +201,19 @@ export default function UsersPage() {
                     required={!editingUser}
                   />
                 </div>
+                {form.role === 'admin' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+                      required
+                      placeholder="admin@ejemplo.com"
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
                   <select

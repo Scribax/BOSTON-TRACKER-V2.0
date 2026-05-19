@@ -18,6 +18,8 @@ export default function ApkPage() {
   const [versions, setVersions] = useState<ApkVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetchVersions();
@@ -49,18 +51,42 @@ export default function ApkPage() {
     if (!file) return;
 
     setUploading(true);
+    setUploadProgress(0);
     const formData = new FormData();
     formData.append('apk', file);
 
     try {
       await api.post('/apk/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => {
+          const pct = e.total ? Math.round((e.loaded * 100) / e.total) : 0;
+          setUploadProgress(pct);
+        },
       });
-      fetchVersions();
+      setUploadProgress(100);
+      await fetchVersions();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Error subiendo APK');
     } finally {
       setUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const copyLink = () => {
+    const url = 'http://186.64.123.15:5000/api/apk/download/latest';
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    } else {
+      // HTTP fallback
+      const el = document.createElement('textarea');
+      el.value = url;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -90,6 +116,22 @@ export default function ApkPage() {
           </label>
         </div>
 
+        {/* Upload progress bar */}
+        {uploading && (
+          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">Subiendo APK...</span>
+              <span className="text-sm font-bold text-red-600">{uploadProgress}%</span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+              <div
+                className="h-3 bg-red-600 rounded-full transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Download link card */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
           <h3 className="font-semibold text-gray-900 mb-2">Enlace de descarga</h3>
@@ -100,17 +142,16 @@ export default function ApkPage() {
             <input
               type="text"
               readOnly
-              value={`http://186.64.123.15:5000/api/apk/download/latest`}
+              value="http://186.64.123.15:5000/api/apk/download/latest"
               className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600"
             />
             <button
-              onClick={() => {
-                navigator.clipboard.writeText('http://186.64.123.15:5000/api/apk/download/latest');
-                alert('Enlace copiado');
-              }}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+              onClick={copyLink}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                copied ? 'bg-green-100 text-green-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
             >
-              Copiar
+              {copied ? '¡Copiado!' : 'Copiar'}
             </button>
           </div>
         </div>

@@ -86,10 +86,15 @@ export default function ActiveDeliveryCard({ delivery, isSelected, onSelect, onS
           {delivery.location?.batteryLevel != null && (() => {
             const b = delivery.location!.batteryLevel!;
             const color = b > 50 ? 'text-green-600' : b > 20 ? 'text-yellow-500' : 'text-red-500';
-            const bars = b > 75 ? '████' : b > 50 ? '███░' : b > 25 ? '██░░' : '█░░░';
+            const fillColor = b > 50 ? '#16a34a' : b > 20 ? '#eab308' : '#ef4444';
+            const fillW = Math.round((b / 100) * 18);
             return (
               <span className={`text-xs font-medium flex items-center gap-1 ${color}`}>
-                <span className="font-mono tracking-tight">{bars}</span>
+                <svg width="22" height="12" viewBox="0 0 22 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="0.5" y="0.5" width="19" height="11" rx="2" stroke="currentColor" strokeWidth="1.2"/>
+                  <rect x="2" y="2" width={fillW} height="8" rx="1" fill={fillColor}/>
+                  <path d="M20 4v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
                 {b}%
               </span>
             );

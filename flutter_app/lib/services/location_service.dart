@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' show pi, sin, cos, sqrt, atan2, pow;
 import 'package:geolocator/geolocator.dart';
 import 'package:logger/logger.dart';
+import 'package:battery_plus/battery_plus.dart';
 import 'api_service.dart';
 import 'foreground_service.dart';
 
@@ -37,6 +38,8 @@ class LocationService {
   DateTime? _lastSentTime;
   final List<LocationData> _pendingQueue = [];
   bool _isFlushing = false;
+  final Battery _battery = Battery();
+  int? _lastBatteryLevel;
 
   LocationService(this._apiService);
 
@@ -254,6 +257,7 @@ class LocationService {
 
     // Send to backend
     _lastSentTime = DateTime.now();
+    _lastBatteryLevel = await _battery.batteryLevel.catchError((_) => _lastBatteryLevel ?? -1);
     await _sendLocationToBackend(locationData);
     // Throttle metrics to every 5 seconds
     final now = DateTime.now();
@@ -300,6 +304,7 @@ class LocationService {
         accuracy: data.accuracy,
         speed: data.speed,
         heading: data.heading,
+        batteryLevel: _lastBatteryLevel,
       );
     } catch (e) {
       _logger.w('Offline: queuing location (queue size: ${_pendingQueue.length + 1})');

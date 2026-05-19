@@ -31,6 +31,7 @@ export interface LocationUpdate {
   speed: number;
   heading: number;
   accuracy: number;
+  batteryLevel?: number | null;
   timestamp: string;
 }
 

@@ -19,6 +19,9 @@ class LocationModel
   public latitude!: number;
   public longitude!: number;
   public accuracy?: number;
+  public speed?: number;
+  public heading?: number;
+  public batteryLevel?: number;
   public timestamp!: Date;
 
   // Timestamps
@@ -59,6 +62,18 @@ LocationModel.init(
     },
     accuracy: {
       type: DataTypes.FLOAT,
+      allowNull: true,
+    },
+    speed: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+    },
+    heading: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+    },
+    batteryLevel: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
     timestamp: {

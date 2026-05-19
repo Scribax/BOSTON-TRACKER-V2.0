@@ -82,12 +82,28 @@ export default function Map({ deliveries, selectedId, onSelect }: MapProps) {
         iconAnchor: [20, 20],
       });
 
+      const battery = delivery.location?.batteryLevel;
+      const acc = delivery.location?.accuracy;
+      const batteryHtml = battery != null
+        ? `<div style="margin-top:4px;font-size:11px;color:${battery > 50 ? '#16a34a' : battery > 20 ? '#ca8a04' : '#dc2626'}">🔋 ${battery}%</div>`
+        : '';
+      const gpsHtml = acc != null
+        ? `<div style="font-size:11px;color:${acc <= 10 ? '#16a34a' : acc <= 30 ? '#2563eb' : acc <= 60 ? '#ca8a04' : '#dc2626'}">📡 ${acc <= 10 ? 'Excelente' : acc <= 30 ? 'Bueno' : acc <= 60 ? 'Regular' : 'Débil'} (${acc.toFixed(0)}m)</div>`
+        : '';
+
       if (markersRef.current[delivery.id]) {
         markersRef.current[delivery.id].setLatLng([latitude, longitude]);
         markersRef.current[delivery.id].setIcon(icon);
+        markersRef.current[delivery.id].getPopup()?.setContent(
+          `<div style="font-size:12px;font-weight:600">${delivery.name}</div><div style="font-size:11px;color:#6b7280">${delivery.employeeId}</div>${batteryHtml}${gpsHtml}`
+        );
       } else {
         const marker = L.marker([latitude, longitude], { icon }).addTo(mapRef.current!);
-        marker.on('click', () => onSelect?.(delivery.id));
+        marker.bindPopup(
+          `<div style="font-size:12px;font-weight:600">${delivery.name}</div><div style="font-size:11px;color:#6b7280">${delivery.employeeId}</div>${batteryHtml}${gpsHtml}`,
+          { offset: [0, -20], closeButton: false }
+        );
+        marker.on('click', () => { onSelect?.(delivery.id); marker.openPopup(); });
         markersRef.current[delivery.id] = marker;
       }
     });

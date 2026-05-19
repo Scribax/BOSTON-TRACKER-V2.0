@@ -65,6 +65,9 @@ export interface LocationAttributes {
   latitude: number;
   longitude: number;
   accuracy?: number;
+  speed?: number;
+  heading?: number;
+  batteryLevel?: number;
   timestamp: Date;
   createdAt?: Date;
   updatedAt?: Date;

@@ -176,6 +176,7 @@ class ApiService {
     double? accuracy,
     double? speed,
     double? heading,
+    int? batteryLevel,
   }) async {
     try {
       final user = await _storage.getUser();
@@ -191,6 +192,7 @@ class ApiService {
           if (accuracy != null) 'accuracy': accuracy,
           if (speed != null) 'speed': speed,
           if (heading != null) 'heading': heading,
+          if (batteryLevel != null) 'batteryLevel': batteryLevel,
           'timestamp': DateTime.now().toIso8601String(),
         },
       );

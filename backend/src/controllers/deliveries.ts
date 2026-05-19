@@ -320,7 +320,7 @@ export const updateLocation = async (
 ): Promise<void> => {
   try {
     const { id: deliveryId } = req.params;
-    const { latitude, longitude, accuracy, speed, heading, timestamp } = req.body as UpdateLocationRequest;
+    const { latitude, longitude, accuracy, speed, heading, timestamp, batteryLevel } = req.body as UpdateLocationRequest & { batteryLevel?: number };
 
     // Validate coordinates
     if (!isValidCoordinate(latitude, longitude)) {
@@ -352,6 +352,9 @@ export const updateLocation = async (
       latitude,
       longitude,
       accuracy,
+      speed,
+      heading,
+      batteryLevel,
       timestamp: timestamp ? new Date(timestamp) : new Date(),
     });
 
@@ -387,6 +390,7 @@ export const updateLocation = async (
       accuracy,
       speed: speed || 0,
       heading: heading || 0,
+      batteryLevel: batteryLevel ?? null,
       timestamp: new Date().toISOString(),
       currentLocation: {
         latitude,

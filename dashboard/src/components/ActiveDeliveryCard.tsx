@@ -80,6 +80,33 @@ export default function ActiveDeliveryCard({ delivery, isSelected, onSelect, onS
         </div>
       </div>
 
+      {/* Battery + GPS signal row */}
+      {(delivery.location?.batteryLevel != null || delivery.location?.accuracy != null) && (
+        <div className="flex items-center gap-3 mb-2 px-1">
+          {delivery.location?.batteryLevel != null && (() => {
+            const b = delivery.location!.batteryLevel!;
+            const color = b > 50 ? 'text-green-600' : b > 20 ? 'text-yellow-500' : 'text-red-500';
+            const bars = b > 75 ? '████' : b > 50 ? '███░' : b > 25 ? '██░░' : '█░░░';
+            return (
+              <span className={`text-xs font-medium flex items-center gap-1 ${color}`}>
+                <span className="font-mono tracking-tight">{bars}</span>
+                {b}%
+              </span>
+            );
+          })()}
+          {delivery.location?.accuracy != null && (() => {
+            const a = delivery.location!.accuracy;
+            const label = a <= 10 ? 'GPS Excelente' : a <= 30 ? 'GPS Bueno' : a <= 60 ? 'GPS Regular' : 'GPS Débil';
+            const color = a <= 10 ? 'text-green-600' : a <= 30 ? 'text-blue-500' : a <= 60 ? 'text-yellow-500' : 'text-red-500';
+            return (
+              <span className={`text-xs font-medium ${color}`}>
+                📡 {label} ({a.toFixed(0)}m)
+              </span>
+            );
+          })()}
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-500 flex items-center gap-1">
           <Clock className="w-3 h-3" />

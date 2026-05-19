@@ -103,7 +103,7 @@ class LocationService {
     );
 
     // Use medium accuracy + larger distanceFilter for older devices
-    const locationSettings = AndroidSettings(
+    final locationSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 10,
       intervalDuration: Duration(seconds: 5),

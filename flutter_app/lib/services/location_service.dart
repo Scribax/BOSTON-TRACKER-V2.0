@@ -312,7 +312,13 @@ class LocationService {
         heading: data.heading,
         batteryLevel: _lastBatteryLevel,
       );
-    } catch (e) {
+    } on Exception catch (e) {
+      final msg = e.toString();
+      if (msg.contains('404')) {
+        _logger.w('Trip not found (404) — stopping tracking');
+        stopTracking();
+        return;
+      }
       _logger.w('Offline: queuing location (queue size: ${_pendingQueue.length + 1})');
       if (_pendingQueue.length < 500) _pendingQueue.add(data);
     }

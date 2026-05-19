@@ -25,8 +25,9 @@ class SocketService {
           .setTransports(['websocket', 'polling'])
           .setAuth({'token': token})
           .enableReconnection()
-          .setReconnectionDelay(1000)
-          .setReconnectionAttempts(5)
+          .setReconnectionDelay(2000)
+          .setReconnectionDelayMax(30000)
+          .setReconnectionAttempts(99999)
           .build(),
     );
 

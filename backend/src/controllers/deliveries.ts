@@ -20,6 +20,7 @@ import type {
 } from '../types/index';
 import {
   calculateTotalDistance,
+  calculateHaversineDistance,
   filterGPSNoise,
   calculateAverageSpeed,
   isValidCoordinate,
@@ -352,16 +353,26 @@ export const updateLocation = async (
       timestamp: timestamp ? new Date(timestamp) : new Date(),
     });
 
-    // Recalculate mileage with new location
-    const allLocations = await Location.findAll({
+    // Incrementally update mileage using only the last saved location
+    const lastLocation = await Location.findOne({
       where: { tripId: (activeTrip as any).id },
-      order: [['timestamp', 'ASC']],
+      order: [['timestamp', 'DESC']],
+      offset: 1, // second-to-last (the one before current)
     });
 
-    const filtered = filterGPSNoise(allLocations as unknown as Location[]);
-    (activeTrip as any).mileage = calculateTotalDistance(filtered);
+    if (lastLocation) {
+      const segmentDistance = calculateHaversineDistance(
+        { lat: (lastLocation as any).latitude, lng: (lastLocation as any).longitude },
+        { lat: latitude, lng: longitude },
+        'km'
+      );
+      // Only add if reasonable (< 500m per update, filter GPS jumps)
+      if (segmentDistance < 0.5) {
+        (activeTrip as any).mileage = ((activeTrip as any).mileage || 0) + segmentDistance;
+      }
+    }
     (activeTrip as any).duration = activeTrip.getDuration();
-    (activeTrip as any).averageSpeed = calculateAverageSpeed(filtered, (activeTrip as any).duration);
+    (activeTrip as any).totalLocations = ((activeTrip as any).totalLocations || 0) + 1;
 
     await activeTrip.save();
 

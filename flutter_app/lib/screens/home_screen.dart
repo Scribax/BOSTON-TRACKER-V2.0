@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -26,6 +27,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
   String? _error;
   TripMetrics? _liveMetrics;
+  StreamSubscription<TripMetrics>? _metricsSubscription;
+  StreamSubscription<Map<String, dynamic>>? _socketSubscription;
 
   @override
   void initState() {
@@ -49,7 +52,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _setupSocketListeners() {
-    _socketService.events.listen((event) {
+    _socketSubscription?.cancel();
+    _socketSubscription = _socketService.events.listen((event) {
       if (event['type'] == 'tripStopped') {
         final data = event['data'];
         _showTripStoppedDialog(data);
@@ -58,6 +62,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showTripStoppedDialog(Map<String, dynamic> data) {
+    // Stop tracking locally - trip already stopped on backend
+    _locationService?.stopTracking();
+    if (mounted) {
+      setState(() {
+        _activeTrip = null;
+        _liveMetrics = null;
+      });
+    }
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -71,15 +83,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         content: Text(
           'Tu viaje ha sido detenido desde el dashboard.\n\n'
-          'Distancia: ${(data['totalMileage'] ?? 0).toStringAsFixed(2)} km\n'
-          'Duración: ${(data['duration'] ?? 0) ~/ 60} min',
+          'Distancia: ${((data['totalMileage'] ?? 0) as num).toStringAsFixed(2)} km\n'
+          'Duración: ${((data['duration'] ?? 0) as num).toInt() ~/ 60} min',
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _stopTrip();
-            },
+            onPressed: () => Navigator.pop(context),
             child: const Text('Entendido'),
           ),
         ],
@@ -193,9 +202,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _startLocationTracking() {
+    _metricsSubscription?.cancel();
     _locationService?.startTracking();
-    
-    _locationService?.metrics.listen((metrics) {
+    _metricsSubscription = _locationService?.metrics.listen((metrics) {
       if (mounted) {
         setState(() => _liveMetrics = metrics);
       }
@@ -435,6 +444,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _metricsSubscription?.cancel();
+    _socketSubscription?.cancel();
     _locationService?.dispose();
     _socketService.dispose();
     super.dispose();

@@ -29,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   TripMetrics? _liveMetrics;
   StreamSubscription<TripMetrics>? _metricsSubscription;
   StreamSubscription<Map<String, dynamic>>? _socketSubscription;
+  Timer? _tripPollingTimer;
 
   @override
   void initState() {
@@ -209,6 +210,29 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() => _liveMetrics = metrics);
       }
+    });
+    _startTripPolling();
+  }
+
+  void _startTripPolling() {
+    _tripPollingTimer?.cancel();
+    _tripPollingTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+      if (!mounted || _activeTrip == null) return;
+      try {
+        final response = await _apiService.getActiveTrip();
+        if (response.success && response.data == null) {
+          // Trip was stopped externally (by admin)
+          _locationService?.stopTracking();
+          _tripPollingTimer?.cancel();
+          if (mounted) {
+            setState(() {
+              _activeTrip = null;
+              _liveMetrics = null;
+            });
+            _showTripStoppedDialog({'totalMileage': 0, 'duration': 0});
+          }
+        }
+      } catch (_) {}
     });
   }
 
@@ -458,6 +482,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _metricsSubscription?.cancel();
     _socketSubscription?.cancel();
+    _tripPollingTimer?.cancel();
     _locationService?.dispose();
     _socketService.dispose();
     super.dispose();

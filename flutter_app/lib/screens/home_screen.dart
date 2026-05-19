@@ -281,8 +281,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _startTripPolling() {
     _tripPollingTimer?.cancel();
+    bool graceOver = false;
+    // Grace period: ignore first 30s to avoid false positives right after trip start
+    Future.delayed(const Duration(seconds: 30), () { graceOver = true; });
     _tripPollingTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
-      if (!mounted || _activeTrip == null) return;
+      if (!mounted || _activeTrip == null || !graceOver) return;
       try {
         final response = await _apiService.getActiveTrip();
         if (response.success && response.data == null) {

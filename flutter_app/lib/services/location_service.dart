@@ -3,6 +3,7 @@ import 'dart:math' show pi, sin, cos, sqrt, atan2, pow;
 import 'package:geolocator/geolocator.dart';
 import 'package:logger/logger.dart';
 import 'api_service.dart';
+import 'foreground_service.dart';
 
 class LocationService {
   final ApiService _apiService;
@@ -29,6 +30,8 @@ class LocationService {
   int get durationSeconds => _startTime != null
       ? DateTime.now().difference(_startTime!).inSeconds
       : 0;
+
+  String? _deliveryName;
 
   LocationService(this._apiService);
 
@@ -73,7 +76,7 @@ class LocationService {
            permission == LocationPermission.whileInUse;
   }
 
-  void startTracking() async {
+  void startTracking({String? deliveryName}) async {
     if (_isTracking) return;
 
     final hasPermission = await checkPermissions();
@@ -83,6 +86,7 @@ class LocationService {
     }
 
     _isTracking = true;
+    _deliveryName = deliveryName;
     _totalDistance = 0.0;
     _maxSpeed = 0.0;
     _speedSamples = [];
@@ -92,14 +96,29 @@ class LocationService {
 
     _logger.i('Started location tracking');
 
-    const locationSettings = LocationSettings(
+    // Start foreground service to prevent OS from killing the app
+    await ForegroundService.startService(
+      deliveryName: deliveryName ?? 'repartidor',
+      tripId: '',
+    );
+
+    // Use medium accuracy + larger distanceFilter for older devices
+    const locationSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 5, // Minimum 5 meters between updates
+      distanceFilter: 10,
+      intervalDuration: Duration(seconds: 5),
+      foregroundNotificationConfig: ForegroundNotificationConfig(
+        notificationText: 'Boston Tracker está usando tu ubicación',
+        notificationTitle: 'Rastreo activo',
+        enableWakeLock: true,
+      ),
     );
 
     _positionStream = Geolocator.getPositionStream(
       locationSettings: locationSettings,
-    ).listen(_onPositionUpdate);
+    ).listen(_onPositionUpdate, onError: (e) {
+      _logger.e('Position stream error: $e');
+    });
   }
 
   void stopTracking() {
@@ -108,13 +127,14 @@ class LocationService {
     _positionStream = null;
     _lastPosition = null;
     _logger.i('Stopped location tracking');
+    ForegroundService.stopService();
   }
 
   void _onPositionUpdate(Position position) async {
     if (!_isTracking) return;
 
-    // Filter low accuracy locations
-    if (position.accuracy > 50) {
+    // Filter low accuracy locations (more tolerant for older devices)
+    if (position.accuracy > 100) {
       _logger.w('Low accuracy location ignored: ${position.accuracy}m');
       return;
     }
@@ -134,7 +154,7 @@ class LocationService {
       );
 
       // Filter small movements (GPS noise)
-      if (distanceKm * 1000 < 8) {
+      if (distanceKm * 1000 < 5) {
         return;
       }
 
@@ -155,8 +175,15 @@ class LocationService {
       _totalDistance += distanceKm;
     }
 
+    // Update foreground notification with current metrics
+    final distM = (_totalDistance * 1000).round();
+    final distStr = distM >= 1000
+        ? '${(_totalDistance).toStringAsFixed(2)} km'
+        : '$distM m';
+    ForegroundService.updateNotification('$distStr recorridos');
+
     // Update max speed
-    final currentSpeed = position.speed * 3.6; // Convert m/s to km/h
+    final currentSpeed = position.speed >= 0 ? position.speed * 3.6 : 0.0; // Convert m/s to km/h
     if (currentSpeed > _maxSpeed) {
       _maxSpeed = currentSpeed;
     }

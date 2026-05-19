@@ -110,7 +110,8 @@ class _HomeScreenState extends State<HomeScreen> {
         
         // If has active trip, resume tracking
         if (_activeTrip != null && _activeTrip!.isActive) {
-          _startLocationTracking();
+          final user = await _storageService.getUser();
+          _startLocationTracking(deliveryName: user?.name);
         }
       } else {
         setState(() => _error = response.error);
@@ -133,8 +134,8 @@ class _HomeScreenState extends State<HomeScreen> {
           _activeTrip = response.data;
           _error = null;
         });
-        
-        _startLocationTracking();
+        final user = await _storageService.getUser();
+        _startLocationTracking(deliveryName: user?.name);
         
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -201,9 +202,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _startLocationTracking() {
+  void _startLocationTracking({String? deliveryName}) {
     _metricsSubscription?.cancel();
-    _locationService?.startTracking();
+    _locationService?.startTracking(deliveryName: deliveryName);
     _metricsSubscription = _locationService?.metrics.listen((metrics) {
       if (mounted) {
         setState(() => _liveMetrics = metrics);

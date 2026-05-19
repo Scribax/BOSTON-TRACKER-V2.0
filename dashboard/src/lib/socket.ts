@@ -6,7 +6,11 @@ const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://186.64.123.15:5
 let socket: Socket | null = null;
 
 export function getSocket(): Socket {
-  if (!socket) {
+  if (!socket || !socket.connected) {
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
     const token = Cookies.get('token');
     socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],

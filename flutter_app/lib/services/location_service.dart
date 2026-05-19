@@ -113,7 +113,7 @@ class LocationService {
     if (!_isTracking) return;
 
     // Filter low accuracy locations
-    if (position.accuracy > 20) {
+    if (position.accuracy > 50) {
       _logger.w('Low accuracy location ignored: ${position.accuracy}m');
       return;
     }

@@ -57,12 +57,16 @@ class ApiService {
       });
 
       if (response.data['success'] == true) {
-        final userData = response.data['data'] ?? response.data;
-        final user = User.fromJson(userData);
+        final inner = response.data['data'] ?? {};
+        final token = inner['token'];
+        final userJson = inner['user'] ?? inner;
+        final user = User.fromJson({
+          ...Map<String, dynamic>.from(userJson),
+          'token': token,
+        });
         
-        // Save token
-        if (userData['token'] != null) {
-          await _storage.saveToken(userData['token']);
+        if (token != null) {
+          await _storage.saveToken(token);
         }
         
         return ApiResponse.success(user);
@@ -83,7 +87,11 @@ class ApiService {
       final response = await _dio.get('/auth/me');
 
       if (response.data['success'] == true) {
-        final user = User.fromJson(response.data['data']);
+        final inner = response.data['data'];
+        final userJson = inner is Map && inner.containsKey('user')
+            ? inner['user']
+            : inner;
+        final user = User.fromJson(Map<String, dynamic>.from(userJson));
         return ApiResponse.success(user);
       } else {
         return ApiResponse.error(response.data['message'] ?? 'Error');
@@ -145,9 +153,10 @@ class ApiService {
       final response = await _dio.get('/deliveries/my-trip');
 
       if (response.data['success'] == true) {
-        final tripData = response.data['data']?['trip'];
-        if (tripData != null) {
-          final trip = Trip.fromJson(tripData);
+        final inner = response.data['data'];
+        final tripData = inner is Map ? (inner['trip'] ?? inner) : null;
+        if (tripData != null && tripData['id'] != null) {
+          final trip = Trip.fromJson(Map<String, dynamic>.from(tripData));
           return ApiResponse.success(trip);
         }
         return ApiResponse.success(null);

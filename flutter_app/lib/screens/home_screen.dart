@@ -20,9 +20,12 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _socketService = SocketService();
   LocationService? _locationService;
+  late StorageService _storageService;
+  late ApiService _apiService;
   Trip? _activeTrip;
   bool _isLoading = false;
   String? _error;
+  TripMetrics? _liveMetrics;
 
   @override
   void initState() {
@@ -31,13 +34,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _initServices() async {
-    final storageService = StorageService();
-    await storageService.init();
-    final apiService = ApiService(storageService);
+    _storageService = StorageService();
+    await _storageService.init();
+    _apiService = ApiService(_storageService);
+    _locationService = LocationService(_apiService);
     
-    _locationService = LocationService(apiService);
-    
-    final user = await storageService.getUser();
+    final user = await _storageService.getUser();
     if (user != null && user.token != null) {
       _socketService.connect(user.id, user.token!);
       _setupSocketListeners();
@@ -89,11 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isLoading = true);
     
     try {
-      final storageService = StorageService();
-      await storageService.init();
-      final apiService = ApiService(storageService);
-      
-      final response = await apiService.getActiveTrip();
+      final response = await _apiService.getActiveTrip();
       
       if (response.success) {
         setState(() {
@@ -119,11 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isLoading = true);
     
     try {
-      final storageService = StorageService();
-      await storageService.init();
-      final apiService = ApiService(storageService);
-      
-      final response = await apiService.startTrip();
+      final response = await _apiService.startTrip();
       
       if (response.success && response.data != null) {
         setState(() {
@@ -167,16 +161,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _locationService?.stopTracking();
     
     try {
-      final storageService = StorageService();
-      await storageService.init();
-      final apiService = ApiService(storageService);
-      
-      final response = await apiService.stopTrip();
+      final response = await _apiService.stopTrip();
       
       if (response.success) {
         setState(() {
           _activeTrip = null;
           _error = null;
+          _liveMetrics = null;
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -205,9 +196,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _locationService?.startTracking();
     
     _locationService?.metrics.listen((metrics) {
-      // Update UI with real-time metrics
       if (mounted) {
-        setState(() {});
+        setState(() => _liveMetrics = metrics);
       }
     });
   }
@@ -362,6 +352,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTripCard() {
+    final distanceKm = _liveMetrics != null
+        ? _liveMetrics!.totalDistanceM / 1000
+        : _activeTrip?.mileage ?? 0.0;
+    final distanceStr = distanceKm >= 1
+        ? '${distanceKm.toStringAsFixed(2)} km'
+        : '${(_liveMetrics?.totalDistanceM ?? ((_activeTrip?.mileage ?? 0) * 1000).round())} m';
+    final speedStr = '${_liveMetrics?.currentSpeed ?? _activeTrip?.averageSpeed.round() ?? 0} km/h';
+    final durationSec = _liveMetrics?.totalTime ?? _activeTrip?.duration ?? 0;
+    final durationStr = durationSec >= 3600
+        ? '${durationSec ~/ 3600}h ${(durationSec % 3600) ~/ 60}m'
+        : durationSec >= 60
+            ? '${durationSec ~/ 60}m ${durationSec % 60}s'
+            : '${durationSec}s';
+
     return Card(
       color: AppTheme.successColor.withOpacity(0.1),
       child: Padding(
@@ -371,23 +375,36 @@ class _HomeScreenState extends State<HomeScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildMetricItem(
-                  Icons.route,
-                  _activeTrip?.formattedMileage ?? '0 m',
-                  'Distancia',
-                ),
-                _buildMetricItem(
-                  Icons.timer,
-                  _activeTrip?.formattedDuration ?? '0s',
-                  'Duración',
-                ),
-                _buildMetricItem(
-                  Icons.speed,
-                  '${_activeTrip?.averageSpeed.toStringAsFixed(0) ?? 0} km/h',
-                  'Velocidad',
-                ),
+                _buildMetricItem(Icons.route, distanceStr, 'Distancia'),
+                _buildMetricItem(Icons.timer, durationStr, 'Duración'),
+                _buildMetricItem(Icons.speed, speedStr, 'Velocidad'),
               ],
             ),
+            if (_liveMetrics != null) ...[
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildMetricItem(
+                    Icons.speed,
+                    '${_liveMetrics!.maxSpeed} km/h',
+                    'Vel. Máx',
+                  ),
+                  _buildMetricItem(
+                    Icons.gps_fixed,
+                    '${_liveMetrics!.validLocations}',
+                    'Puntos GPS',
+                  ),
+                  _buildMetricItem(
+                    Icons.trending_up,
+                    '${_liveMetrics!.averageSpeed} km/h',
+                    'Vel. Prom',
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

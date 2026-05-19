@@ -257,7 +257,8 @@ class _HomeScreenState extends State<HomeScreen> {
             actions: [
               IconButton(
                 icon: const Icon(Icons.logout),
-                onPressed: _logout,
+                onPressed: _activeTrip != null ? null : _logout,
+                tooltip: _activeTrip != null ? 'No podés cerrar sesión durante un viaje' : 'Cerrar sesión',
               ),
             ],
           ),

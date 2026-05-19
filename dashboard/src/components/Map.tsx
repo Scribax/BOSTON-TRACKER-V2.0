@@ -92,13 +92,20 @@ export default function Map({ deliveries, selectedId, onSelect }: MapProps) {
       }
     });
 
-    // Center on selected
+    // Center on selected OR fit all pins
     if (selectedId) {
       const selected = deliveries.find((d) => d.id === selectedId);
       const lat = selected?.location?.latitude;
       const lng = selected?.location?.longitude;
       if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
         mapRef.current.setView([lat, lng], 15, { animate: true });
+      }
+    } else {
+      const validPoints = deliveries
+        .filter((d) => d.location?.latitude != null && d.location?.longitude != null)
+        .map((d) => [d.location!.latitude, d.location!.longitude] as [number, number]);
+      if (validPoints.length > 1) {
+        mapRef.current.fitBounds(L.latLngBounds(validPoints), { padding: [40, 40], animate: true, maxZoom: 16 });
       }
     }
   }, [deliveries, selectedId, onSelect]);

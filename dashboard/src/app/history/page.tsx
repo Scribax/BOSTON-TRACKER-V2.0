@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import DashboardLayout from '@/components/DashboardLayout';
 import api from '@/lib/api';
 import { Trip } from '@/lib/types';
-import { History, MapPin, X, Search } from 'lucide-react';
+import { History, MapPin, X, Search, Download } from 'lucide-react';
 
 const TripRouteMap = dynamic(() => import('@/components/TripRouteMap'), { ssr: false });
 
@@ -56,6 +56,27 @@ export default function HistoryPage() {
     finally { setLoadingRoute(false); }
   };
 
+  const exportCSV = () => {
+    const headers = ['Delivery', 'ID Empleado', 'Fecha', 'Hora Inicio', 'Hora Fin', 'Duración', 'Distancia (km)', 'Vel. Prom (km/h)', 'Vel. Máx (km/h)'];
+    const rows = filtered.map(t => [
+      t.delivery?.name || 'N/A',
+      t.delivery?.employeeId || '',
+      new Date(t.startTime).toLocaleDateString('es-AR'),
+      new Date(t.startTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+      t.endTime ? new Date(t.endTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '-',
+      fmt(t.totalTime),
+      t.totalMileage?.toFixed(2) || '0',
+      t.averageSpeed?.toFixed(0) || '0',
+      t.maxSpeed?.toFixed(0) || '0',
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `historial-viajes-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+
   const fmt = (s: number) => {
     if (!s) return '0m';
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -75,7 +96,15 @@ export default function HistoryPage() {
             <History className="w-6 h-6 text-red-600" />
             <h2 className="text-xl font-bold text-gray-900">Historial de Viajes</h2>
           </div>
-          <span className="text-sm text-gray-500">{filtered.length} de {trips.length} viajes</span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500">{filtered.length} de {trips.length} viajes</span>
+            {filtered.length > 0 && (
+              <button onClick={exportCSV}
+                className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors">
+                <Download className="w-3.5 h-3.5" /> Exportar CSV
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filters */}
@@ -125,7 +154,7 @@ export default function HistoryPage() {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Delivery</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Fecha</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Fecha / Hora</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Duración</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Distancia</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Vel. Prom</th>
@@ -141,7 +170,11 @@ export default function HistoryPage() {
                       <p className="text-xs text-gray-500">{trip.delivery?.employeeId || trip.deliveryId?.slice(0, 8)}</p>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {new Date(trip.startTime).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                      <p>{new Date(trip.startTime).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</p>
+                      <p className="text-xs text-gray-400">
+                        {new Date(trip.startTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                        {trip.endTime ? ` → ${new Date(trip.endTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                      </p>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{fmt(trip.totalTime)}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{fmtDist(trip.totalMileage)}</td>

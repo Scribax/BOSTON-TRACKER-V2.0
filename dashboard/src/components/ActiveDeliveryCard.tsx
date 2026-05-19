@@ -1,7 +1,17 @@
 'use client';
 
 import { ActiveDelivery } from '@/lib/types';
-import { Truck, Clock, Gauge, Route, Square } from 'lucide-react';
+import { Clock, Gauge, Route, Square } from 'lucide-react';
+
+function getInitials(name: string) {
+  return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+}
+
+function getColor(name: string) {
+  const colors = ['bg-blue-500','bg-purple-500','bg-indigo-500','bg-teal-500','bg-orange-500','bg-pink-500'];
+  const i = name.charCodeAt(0) % colors.length;
+  return colors[i];
+}
 
 interface Props {
   delivery: ActiveDelivery;
@@ -32,10 +42,10 @@ export default function ActiveDeliveryCard({ delivery, isSelected, onSelect, onS
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-            isSelected ? 'bg-red-600' : 'bg-blue-600'
-          }`}>
-            <Truck className="w-4 h-4 text-white" />
+          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-sm ${
+            isSelected ? 'ring-2 ring-red-500 ring-offset-1' : ''
+          } ${getColor(delivery.name)}`}>
+            {getInitials(delivery.name)}
           </div>
           <div>
             <p className="font-semibold text-gray-900 text-sm">{delivery.name}</p>

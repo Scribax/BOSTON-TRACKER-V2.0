@@ -7,13 +7,27 @@ import ActiveDeliveryCard from '@/components/ActiveDeliveryCard';
 import { getSocket } from '@/lib/socket';
 import api from '@/lib/api';
 import { ActiveDelivery } from '@/lib/types';
-import { Truck, Radio } from 'lucide-react';
+import { Truck, Radio, Search, WifiOff } from 'lucide-react';
 
 const Map = dynamic(() => import('@/components/Map'), { ssr: false });
+
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880; osc.type = 'sine';
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+  } catch {}
+}
 
 export default function TrackingPage() {
   const [deliveries, setDeliveries] = useState<ActiveDelivery[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const fetchActiveTrips = useCallback(async () => {
     try {
@@ -54,6 +68,7 @@ export default function TrackingPage() {
       setDeliveries((prev) => {
         const exists = prev.find((d) => d.id === newDelivery.id);
         if (exists) return prev;
+        playBeep();
         return [...prev, newDelivery];
       });
     });
@@ -138,6 +153,22 @@ export default function TrackingPage() {
             </div>
           </div>
 
+          {/* Search */}
+          {deliveries.length > 0 && (
+            <div className="px-4 py-2 border-b border-gray-100">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar delivery..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-400"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="p-4 space-y-3">
             {deliveries.length === 0 ? (
               <div className="text-center py-12">
@@ -148,15 +179,29 @@ export default function TrackingPage() {
                 </p>
               </div>
             ) : (
-              deliveries.map((delivery) => (
-                <ActiveDeliveryCard
-                  key={delivery.id}
-                  delivery={delivery}
-                  isSelected={delivery.id === selectedId}
-                  onSelect={() => setSelectedId(delivery.id)}
-                  onStop={() => handleStopTrip(delivery.id)}
-                />
-              ))
+              deliveries
+                .filter(d => !search || d.name.toLowerCase().includes(search.toLowerCase()) || d.employeeId.toLowerCase().includes(search.toLowerCase()))
+                .map((delivery) => {
+                  const lastUpdate = delivery.location?.timestamp ? new Date(delivery.location.timestamp) : null;
+                  const minsWithoutSignal = lastUpdate ? Math.floor((Date.now() - lastUpdate.getTime()) / 60000) : null;
+                  const noSignal = minsWithoutSignal !== null && minsWithoutSignal >= 3;
+                  return (
+                    <div key={delivery.id}>
+                      {noSignal && (
+                        <div className="mb-1 px-2 py-1 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center gap-1.5 text-xs text-yellow-700">
+                          <WifiOff className="w-3 h-3" />
+                          Sin señal GPS hace {minsWithoutSignal} min
+                        </div>
+                      )}
+                      <ActiveDeliveryCard
+                        delivery={delivery}
+                        isSelected={delivery.id === selectedId}
+                        onSelect={() => setSelectedId(delivery.id)}
+                        onStop={() => handleStopTrip(delivery.id)}
+                      />
+                    </div>
+                  );
+                })
             )}
           </div>
         </div>

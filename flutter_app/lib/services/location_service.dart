@@ -22,6 +22,7 @@ class LocationService {
   List<double> _speedSamples = [];
   DateTime? _startTime;
   int _validLocations = 0;
+  DateTime? _lastMetricsSent;
 
   bool get isTracking => _isTracking;
   double get totalDistance => _totalDistance;
@@ -194,7 +195,13 @@ class LocationService {
 
     // Send to backend
     await _sendLocationToBackend(locationData);
-    await _sendMetricsToBackend(metrics, position.latitude, position.longitude);
+    // Throttle metrics to every 5 seconds
+    final now = DateTime.now();
+    if (_lastMetricsSent == null ||
+        now.difference(_lastMetricsSent!).inSeconds >= 5) {
+      _lastMetricsSent = now;
+      await _sendMetricsToBackend(metrics, position.latitude, position.longitude);
+    }
 
     _lastPosition = position;
   }

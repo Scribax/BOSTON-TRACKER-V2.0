@@ -11,17 +11,22 @@ class AppRouter {
     initialLocation: '/',
     redirect: (context, state) {
       final authState = context.read<AuthBloc>().state;
+
+      // Still loading - don't redirect, wait
+      if (authState is AuthInitial || authState is AuthLoading) {
+        return null;
+      }
       
       // Not authenticated - only allow login
-      if (authState is! AuthAuthenticated) {
+      if (authState is AuthUnauthenticated) {
         if (state.matchedLocation != '/') {
           return '/';
         }
         return null;
       }
       
-      // Authenticated - don't allow login
-      if (state.matchedLocation == '/') {
+      // Authenticated - don't allow login page
+      if (authState is AuthAuthenticated && state.matchedLocation == '/') {
         return '/home';
       }
       

@@ -144,8 +144,9 @@ class LocationService {
     // Calculate distance from last position
     double distanceKm = 0;
     double instantSpeed = 0;
+    final bool isFirstPosition = _lastPosition == null;
 
-    if (_lastPosition != null) {
+    if (!isFirstPosition) {
       distanceKm = _calculateDistance(
         _lastPosition!.latitude,
         _lastPosition!.longitude,
@@ -153,8 +154,9 @@ class LocationService {
         position.longitude,
       );
 
-      // Filter small movements (GPS noise)
+      // Filter small movements (GPS noise) — only after first position
       if (distanceKm * 1000 < 5) {
+        _lastPosition = position;
         return;
       }
 

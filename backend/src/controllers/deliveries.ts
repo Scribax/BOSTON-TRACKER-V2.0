@@ -409,7 +409,15 @@ export const updateMetrics = async (
 ): Promise<void> => {
   try {
     const { id: deliveryId } = req.params;
-    const metrics = req.body as UpdateMetricsRequest;
+    const body = req.body;
+    const metrics: UpdateMetricsRequest = {
+      currentSpeed: body.currentSpeed,
+      averageSpeed: body.averageSpeed,
+      maxSpeed: body.maxSpeed,
+      totalDistance: body.totalDistance ?? (body.totalDistanceM != null ? body.totalDistanceM / 1000 : 0),
+      totalTime: body.totalTime,
+      validLocations: body.validLocations,
+    };
 
     const activeTrip = await Trip.findOne({
       where: { deliveryId, status: 'active' },

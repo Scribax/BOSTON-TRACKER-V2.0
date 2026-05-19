@@ -104,7 +104,7 @@ router.get('/details/:id', authenticate, authorize('admin'), async (
         },
         {
           model: Location,
-          as: 'locations',
+          as: 'tripLocations',
           order: [['timestamp', 'ASC']],
         },
       ],
@@ -131,7 +131,7 @@ router.get('/details/:id', authenticate, authorize('admin'), async (
         duration: trip.getDuration(),
         averageSpeed: trip.getAverageSpeed(),
         status: (trip as any).status,
-        locations: (trip as any).locations || [],
+        locations: (trip as any).tripLocations || [],
       },
     });
   } catch (error) {

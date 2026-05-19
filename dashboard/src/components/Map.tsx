@@ -15,12 +15,13 @@ export default function Map({ deliveries, selectedId, onSelect }: MapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Record<string, L.Marker>>({});
   const containerRef = useRef<HTMLDivElement>(null);
+  const hasAutocentered = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     mapRef.current = L.map(containerRef.current, {
-      center: [-34.6, -58.4],
+      center: [-34.617, -68.33],
       zoom: 12,
       zoomControl: true,
     });
@@ -54,6 +55,12 @@ export default function Map({ deliveries, selectedId, onSelect }: MapProps) {
 
       const { latitude, longitude } = delivery.location;
       if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
+
+      // Auto-center on first real location received
+      if (!hasAutocentered.current) {
+        mapRef.current?.setView([latitude, longitude], 14);
+        hasAutocentered.current = true;
+      }
       const isSelected = delivery.id === selectedId;
 
       const icon = L.divIcon({

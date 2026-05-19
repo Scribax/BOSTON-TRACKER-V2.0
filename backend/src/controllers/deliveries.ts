@@ -282,6 +282,8 @@ export const stopDeliveryTrip = async (
 
     // 🔥 CRITICAL: Also notify the delivery's mobile app
     const deliveryRoom = `delivery-${deliveryId}`;
+    const roomSockets = await io.in(deliveryRoom).allSockets();
+    console.log(`📱 Emitting tripStopped to ${deliveryRoom} - sockets in room: ${roomSockets.size}`);
     io.to(deliveryRoom).emit('tripStopped', {
       tripId: (activeTrip as any).id,
       deliveryId: (activeTrip as any).deliveryId,

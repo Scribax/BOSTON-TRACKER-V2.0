@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show FontFeature;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -30,6 +31,8 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<TripMetrics>? _metricsSubscription;
   StreamSubscription<Map<String, dynamic>>? _socketSubscription;
   Timer? _tripPollingTimer;
+  Timer? _clockTimer;
+  int _elapsedSeconds = 0;
 
   @override
   void initState() {
@@ -175,9 +178,18 @@ class _HomeScreenState extends State<HomeScreen> {
         _startLocationTracking(deliveryName: user?.name);
         
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Viaje iniciado'),
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.gps_fixed, color: Colors.white, size: 20),
+                SizedBox(width: 10),
+                Expanded(child: Text('¡Viaje iniciado! GPS activo y enviando señal.')),
+              ],
+            ),
             backgroundColor: AppTheme.successColor,
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       } else {
@@ -248,6 +260,23 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
     _startTripPolling();
+    _startClock();
+  }
+
+  void _startClock() {
+    _clockTimer?.cancel();
+    _elapsedSeconds = _activeTrip?.duration ?? 0;
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsedSeconds++);
+    });
+  }
+
+  String get _elapsedFormatted {
+    final h = _elapsedSeconds ~/ 3600;
+    final m = (_elapsedSeconds % 3600) ~/ 60;
+    final s = _elapsedSeconds % 60;
+    if (h > 0) return '${h}h ${m.toString().padLeft(2,'0')}m';
+    return '${m.toString().padLeft(2,'0')}:${s.toString().padLeft(2,'0')}';
   }
 
   void _startTripPolling() {
@@ -454,11 +483,34 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            // Live clock
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.successColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    _elapsedFormatted,
+                    style: const TextStyle(
+                      fontSize: 36,
+                      fontWeight: FontWeight.bold,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const Text('Tiempo transcurrido', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildMetricItem(Icons.route, distanceStr, 'Distancia'),
-                _buildMetricItem(Icons.timer, durationStr, 'Duración'),
                 _buildMetricItem(Icons.speed, speedStr, 'Velocidad'),
               ],
             ),
@@ -520,6 +572,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _metricsSubscription?.cancel();
     _socketSubscription?.cancel();
     _tripPollingTimer?.cancel();
+    _clockTimer?.cancel();
     _locationService?.dispose();
     _socketService.dispose();
     super.dispose();

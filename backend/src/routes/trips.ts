@@ -45,6 +45,14 @@ router.get('/history', authenticate, authorize('admin'), async (
           where: { tripId: (trip as any).id },
         });
 
+        // Calculate max speed from location records
+        const maxSpeedRecord = await Location.findOne({
+          where: { tripId: (trip as any).id },
+          order: [['speed', 'DESC']],
+          attributes: ['speed'],
+        });
+        const maxSpeed = maxSpeedRecord ? ((maxSpeedRecord as any).speed || 0) : 0;
+
         return {
           id: (trip as any).id,
           deliveryId: (trip as any).deliveryId,
@@ -56,8 +64,8 @@ router.get('/history', authenticate, authorize('admin'), async (
           endTime: (trip as any).endTime,
           totalMileage: (trip as any).mileage || 0,
           totalTime: (trip as any).duration || trip.getDuration() || 0,
-          averageSpeed: trip.getAverageSpeed() || 0,
-          maxSpeed: 0,
+          averageSpeed: (trip as any).averageSpeed || trip.getAverageSpeed() || 0,
+          maxSpeed,
           status: (trip as any).status,
           totalLocations: locationCount,
         };

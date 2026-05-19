@@ -35,6 +35,8 @@ class LocationService {
   Timer? _heartbeatTimer;
   Position? _lastKnownPosition;
   DateTime? _lastSentTime;
+  final List<LocationData> _pendingQueue = [];
+  bool _isFlushing = false;
 
   LocationService(this._apiService);
 
@@ -264,7 +266,33 @@ class LocationService {
     _lastPosition = position;
   }
 
+  Future<void> _flushQueue() async {
+    if (_isFlushing || _pendingQueue.isEmpty) return;
+    _isFlushing = true;
+    final batch = List<LocationData>.from(_pendingQueue);
+    for (final item in batch) {
+      try {
+        await _apiService.updateLocation(
+          latitude: item.latitude,
+          longitude: item.longitude,
+          accuracy: item.accuracy,
+          speed: item.speed,
+          heading: item.heading,
+        );
+        _pendingQueue.remove(item);
+      } catch (_) {
+        break; // Still offline, stop trying
+      }
+    }
+    _isFlushing = false;
+    if (_pendingQueue.isNotEmpty) {
+      _logger.w('${_pendingQueue.length} locations still pending (offline)');
+    }
+  }
+
   Future<void> _sendLocationToBackend(LocationData data) async {
+    // Try to flush any queued locations first
+    if (_pendingQueue.isNotEmpty) await _flushQueue();
     try {
       await _apiService.updateLocation(
         latitude: data.latitude,
@@ -274,7 +302,8 @@ class LocationService {
         heading: data.heading,
       );
     } catch (e) {
-      _logger.e('Failed to send location: $e');
+      _logger.w('Offline: queuing location (queue size: ${_pendingQueue.length + 1})');
+      if (_pendingQueue.length < 500) _pendingQueue.add(data);
     }
   }
 

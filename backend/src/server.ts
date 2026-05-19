@@ -130,8 +130,10 @@ if (NODE_ENV === 'development') {
 io.use((socket, next) => {
   const token = socket.handshake.auth.token as string | undefined;
 
-  if (!token) {
-    return next(new Error('Authentication error: Token required'));
+  if (!token || token === 'undefined' || token === 'null') {
+    // Allow connection without auth - socket won't have userId
+    socket.data.userId = null;
+    return next();
   }
 
   try {
@@ -139,7 +141,9 @@ io.use((socket, next) => {
     socket.data.userId = decoded.id;
     next();
   } catch (error) {
-    next(new Error('Authentication error: Invalid token'));
+    // Allow connection even with invalid token for dashboard reconnects
+    socket.data.userId = null;
+    next();
   }
 });
 

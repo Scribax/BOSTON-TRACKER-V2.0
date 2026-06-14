@@ -31,7 +31,7 @@ dotenv.config();
 
 const PORT = parseInt(process.env.PORT || '5000', 10);
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
 
 const CORS_ORIGINS = [

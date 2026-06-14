@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { MapPin, Lock, User } from 'lucide-react';
 import Cookies from 'js-cookie';
 import api from '@/lib/api';
+import { disconnectSocket } from '@/lib/socket';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,9 +31,11 @@ export default function LoginPage() {
         return;
       }
 
+      disconnectSocket();
       Cookies.set('token', token, { expires: 7 });
       Cookies.set('user', JSON.stringify(user), { expires: 7 });
       router.push('/');
+      router.refresh();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Error de autenticación');
     } finally {

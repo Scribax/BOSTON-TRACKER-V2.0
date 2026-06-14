@@ -25,23 +25,13 @@ import {
   calculateAverageSpeed,
   isValidCoordinate,
 } from '@utils/geo';
+import { markDeliverySeen, getDeliveryLastSeen } from '@utils/connectionState';
 
 /**
  * Helper to get Socket.IO instance from request
  */
 const getIO = (req: AuthenticatedRequest): SocketIOServer => {
   return (req as AuthenticatedRequest & { io: SocketIOServer }).io;
-};
-
-const updateLastSeen = async (deliveryId: string): Promise<void> => {
-  try {
-    await User.update(
-      { lastLogin: new Date() },
-      { where: { id: deliveryId } }
-    );
-  } catch (error) {
-    console.error('Failed to update delivery lastLogin:', error);
-  }
 };
 
 /**
@@ -92,7 +82,8 @@ export const getActiveDeliveries = async (
           order: [['timestamp', 'DESC']],
         });
 
-        const lastSeenAt = lastLoc ? new Date((lastLoc as any).timestamp) : new Date((trip as any).startTime);
+        const lastSeenAt = getDeliveryLastSeen((trip as any).deliveryId)
+          ?? (lastLoc ? new Date((lastLoc as any).timestamp) : new Date((trip as any).startTime));
         const isOnline = Date.now() - lastSeenAt.getTime() <= 3 * 60 * 1000;
 
         // Get real-time metrics
@@ -211,7 +202,7 @@ export const startDeliveryTrip = async (
       await trip.save();
     }
 
-    await updateLastSeen(deliveryId);
+    markDeliverySeen(deliveryId);
 
     // Emit event to admins
     const io = getIO(req);
@@ -377,7 +368,7 @@ export const updateLocation = async (
       timestamp: timestamp ? new Date(timestamp) : new Date(),
     });
 
-    await updateLastSeen(deliveryId);
+    markDeliverySeen(deliveryId);
 
     // Incrementally update mileage using only the last saved location
     const lastLocation = await Location.findOne({
@@ -402,7 +393,7 @@ export const updateLocation = async (
 
     await activeTrip.save();
 
-    await updateLastSeen(deliveryId);
+    markDeliverySeen(deliveryId);
 
     // Emit to admins
     const io = getIO(req);

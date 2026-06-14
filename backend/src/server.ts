@@ -19,6 +19,7 @@ import authRoutes from './routes/auth';
 import deliveryRoutes from './routes/deliveries';
 import tripRoutes from './routes/trips';
 import apkRoutes from './routes/apk';
+import { markDeliverySeen } from './utils/connectionState';
 import type { ApiResponse, AuthenticatedRequest, ServerToClientEvents, ClientToServerEvents } from './types/index';
 
 // Load environment variables
@@ -175,24 +176,14 @@ io.on('connection', (socket) => {
   socket.on('join-delivery', async (userId: string) => {
     const roomName = `delivery-${userId}`;
     socket.join(roomName);
-    try {
-      await User.update(
-        { lastLogin: new Date() },
-        { where: { id: userId } }
-      );
-    } catch (error) {
-      console.error('Failed to update delivery lastLogin on join:', error);
-    }
+    markDeliverySeen(userId);
     console.log(`🚚 ${socket.id} joined delivery room: ${roomName}`);
   });
 
   // Handle location updates from mobile app
   socket.on('location-update', async (data) => {
     try {
-      await User.update(
-        { lastLogin: new Date() },
-        { where: { id: data.userId } }
-      );
+      markDeliverySeen(data.userId);
 
       // Broadcast to all admins
       io.to('admins').emit('locationUpdate', {

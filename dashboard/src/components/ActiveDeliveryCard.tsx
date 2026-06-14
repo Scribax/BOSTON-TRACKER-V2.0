@@ -124,7 +124,7 @@ export default function ActiveDeliveryCard({ delivery, isSelected, onSelect, onS
             Inicio: {new Date(delivery.startTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
           </span>
           <span className="text-[11px] text-gray-400">
-            Última conexión: {lastSeenLabel}
+            Última señal: {lastSeenLabel}
           </span>
         </div>
         <button

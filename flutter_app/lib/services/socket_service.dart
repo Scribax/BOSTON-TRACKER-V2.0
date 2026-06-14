@@ -72,6 +72,11 @@ class SocketService {
       _eventController.add({'type': 'tripCompleted', 'data': data});
     });
 
+    _socket!.on('deliveryDestination', (data) {
+      _logger.i('Destination received: $data');
+      _eventController.add({'type': 'deliveryDestination', 'data': data});
+    });
+
     _socket!.on('notification', (data) {
       _logger.i('Notification: $data');
       _eventController.add({'type': 'notification', 'data': data});

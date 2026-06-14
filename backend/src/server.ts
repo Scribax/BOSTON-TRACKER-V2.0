@@ -20,7 +20,7 @@ import deliveryRoutes from './routes/deliveries';
 import tripRoutes from './routes/trips';
 import apkRoutes from './routes/apk';
 import { markDeliverySeen } from './utils/connectionState';
-import type { ApiResponse, AuthenticatedRequest, ServerToClientEvents, ClientToServerEvents } from './types/index';
+import type { ApiResponse, AuthenticatedRequest, ServerToClientEvents, ClientToServerEvents, DeliveryDestinationPayload } from './types/index';
 
 // Load environment variables
 dotenv.config();
@@ -138,12 +138,14 @@ io.use((socket, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role?: string };
     socket.data.userId = decoded.id;
+    socket.data.role = decoded.role ?? null;
     next();
   } catch (error) {
     // Allow connection even with invalid token for dashboard reconnects
     socket.data.userId = null;
+    socket.data.role = null;
     next();
   }
 });
@@ -199,6 +201,20 @@ io.on('connection', (socket) => {
       });
     } catch (error) {
       console.error('Error handling location update:', error);
+    }
+  });
+
+  socket.on('deliveryDestination', async (data: DeliveryDestinationPayload) => {
+    try {
+      if (socket.data.role !== 'admin') {
+        console.warn(`⚠️ Non-admin tried to send destination: ${socket.id}`);
+        return;
+      }
+      const roomName = `delivery-${data.deliveryId}`;
+      io.to(roomName).emit('deliveryDestination', data);
+      console.log(`📍 Destination sent to ${roomName}:`, data);
+    } catch (error) {
+      console.error('Error handling delivery destination:', error);
     }
   });
 

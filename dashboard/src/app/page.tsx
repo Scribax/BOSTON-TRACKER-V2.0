@@ -6,8 +6,8 @@ import DashboardLayout from '@/components/DashboardLayout';
 import ActiveDeliveryCard from '@/components/ActiveDeliveryCard';
 import { getSocket } from '@/lib/socket';
 import api from '@/lib/api';
-import { ActiveDelivery } from '@/lib/types';
-import { Truck, Radio, Search, WifiOff, Focus } from 'lucide-react';
+import { ActiveDelivery, DeliveryDestination } from '@/lib/types';
+import { Truck, Radio, Search, WifiOff, Focus, MapPin, X } from 'lucide-react';
 
 const Map = dynamic(() => import('@/components/Map'), { ssr: false });
 
@@ -29,6 +29,7 @@ export default function TrackingPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [centerRequest, setCenterRequest] = useState(0);
+  const [menuPoint, setMenuPoint] = useState<{ latitude: number; longitude: number; x: number; y: number } | null>(null);
 
   const fetchActiveTrips = useCallback(async () => {
     try {
@@ -119,6 +120,10 @@ export default function TrackingPage() {
       );
     });
 
+    socket.on('deliveryDestination', (data: DeliveryDestination) => {
+      console.log('deliveryDestination received', data);
+    });
+
     const statusTimer = setInterval(() => {
       setDeliveries((prev) =>
         prev.map((d) => {
@@ -140,8 +145,25 @@ export default function TrackingPage() {
       socket.off('tripStopped');
       socket.off('locationUpdate');
       socket.off('metricsUpdate');
+      socket.off('deliveryDestination');
     };
   }, [fetchActiveTrips]);
+
+  const sendDestination = async (deliveryId: string) => {
+    if (!menuPoint) return;
+    const delivery = deliveries.find((d) => d.id === deliveryId);
+    if (!delivery) return;
+    const socket = getSocket();
+    socket.emit('deliveryDestination', {
+      deliveryId,
+      deliveryName: delivery.name,
+      latitude: menuPoint.latitude,
+      longitude: menuPoint.longitude,
+      label: `Destino para ${delivery.name}`,
+      assignedAt: new Date().toISOString(),
+    });
+    setMenuPoint(null);
+  };
 
   const handleStopTrip = async (deliveryId: string) => {
     if (!confirm('¿Detener este viaje?')) return;
@@ -163,6 +185,7 @@ export default function TrackingPage() {
             deliveries={deliveries}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            onAssignDestination={setMenuPoint}
             centerRequest={centerRequest}
           />
 
@@ -243,6 +266,40 @@ export default function TrackingPage() {
             )}
           </div>
         </div>
+
+        {menuPoint && (
+          <div className="fixed inset-0 z-[800] bg-black/20" onClick={() => setMenuPoint(null)}>
+            <div
+              className="absolute min-w-72 rounded-xl bg-white shadow-2xl border border-gray-200 p-3"
+              style={{ left: menuPoint.x + 8, top: menuPoint.y + 8 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="font-semibold text-gray-900">Enviar ubicación</p>
+                  <p className="text-xs text-gray-500">
+                    {menuPoint.latitude.toFixed(5)}, {menuPoint.longitude.toFixed(5)}
+                  </p>
+                </div>
+                <button onClick={() => setMenuPoint(null)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {deliveries.map((delivery) => (
+                  <button
+                    key={delivery.id}
+                    onClick={() => sendDestination(delivery.id)}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-left"
+                  >
+                    <MapPin className="w-4 h-4 text-red-600" />
+                    <span className="text-sm font-medium text-gray-800">{delivery.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

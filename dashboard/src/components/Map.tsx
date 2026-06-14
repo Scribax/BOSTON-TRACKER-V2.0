@@ -9,10 +9,11 @@ interface MapProps {
   deliveries: ActiveDelivery[];
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  onAssignDestination?: (point: { latitude: number; longitude: number; x: number; y: number }) => void;
   centerRequest?: number;
 }
 
-export default function Map({ deliveries, selectedId, onSelect, centerRequest }: MapProps) {
+export default function Map({ deliveries, selectedId, onSelect, onAssignDestination, centerRequest }: MapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Record<string, L.Marker>>({});
   const containerRef = useRef<HTMLDivElement>(null);
@@ -31,7 +32,17 @@ export default function Map({ deliveries, selectedId, onSelect, centerRequest }:
       attribution: '&copy; OpenStreetMap contributors',
     }).addTo(mapRef.current);
 
+    mapRef.current.on('contextmenu', (event) => {
+      onAssignDestination?.({
+        latitude: event.latlng.lat,
+        longitude: event.latlng.lng,
+        x: event.originalEvent.clientX,
+        y: event.originalEvent.clientY,
+      });
+    });
+
     return () => {
+      mapRef.current?.off('contextmenu');
       mapRef.current?.remove();
       mapRef.current = null;
     };

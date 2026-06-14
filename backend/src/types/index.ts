@@ -220,6 +220,7 @@ export interface ServerToClientEvents {
   tripStarted: (data: TripEvent) => void;
   tripCompleted: (data: TripCompletedEvent) => void;
   tripStopped: (data: TripStoppedEvent) => void;
+  deliveryDestination: (data: DeliveryDestinationPayload) => void;
   tripsUpdate: (data: TripDTO[]) => void;
   inactivityAlert: (data: any) => void;
   connection_error: (data: { error: string }) => void;
@@ -238,6 +239,7 @@ export interface ClientToServerEvents {
   'join-admin': () => void;
   'join-delivery': (userId: string) => void;
   'location-update': (data: LocationUpdatePayload) => void;
+  'deliveryDestination': (data: DeliveryDestinationPayload) => void;
 }
 
 export interface LocationUpdateEvent {
@@ -253,6 +255,16 @@ export interface LocationUpdatePayload {
   longitude: number;
   accuracy?: number;
   timestamp: string;
+}
+
+export interface DeliveryDestinationPayload {
+  deliveryId: string;
+  deliveryName: string;
+  latitude: number;
+  longitude: number;
+  label?: string;
+  assignedBy?: string;
+  assignedAt: string;
 }
 
 export interface TripEvent {

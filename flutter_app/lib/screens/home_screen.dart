@@ -9,8 +9,10 @@ import '../services/storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/location_service.dart';
 import '../services/foreground_service.dart';
+import '../services/destination_service.dart';
 import '../models/trip.dart';
 import '../models/user.dart';
+import '../models/delivery_destination.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,14 +24,17 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _socketService = SocketService();
   LocationService? _locationService;
+  DestinationService? _destinationService;
   late StorageService _storageService;
   late ApiService _apiService;
   Trip? _activeTrip;
   bool _isLoading = false;
   String? _error;
   TripMetrics? _liveMetrics;
+  DeliveryDestination? _lastDestination;
   StreamSubscription<TripMetrics>? _metricsSubscription;
   StreamSubscription<Map<String, dynamic>>? _socketSubscription;
+  StreamSubscription<DeliveryDestination>? _destinationSubscription;
   StreamSubscription<void>? _unauthorizedSubscription;
   Timer? _tripPollingTimer;
   Timer? _clockTimer;
@@ -94,9 +99,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _storageService.init();
     _apiService = ApiService(_storageService);
     _locationService = LocationService(_apiService);
+    _destinationService = DestinationService(_storageService);
+    await _destinationService!.init();
 
     _unauthorizedSubscription = _apiService.onUnauthorized.listen((_) {
       _locationService?.stopTracking();
+      _destinationSubscription?.cancel();
       _socketService.disconnect();
       _storageService.clearAll();
       if (mounted) context.read<AuthBloc>().add(LogoutRequested());
@@ -107,6 +115,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _socketService.connect(user.id, user.token!);
       _setupSocketListeners();
     }
+    _destinationSubscription = _destinationService?.destinations.listen((destination) {
+      if (mounted) {
+        setState(() => _lastDestination = destination);
+      }
+    });
+    _lastDestination = await (_destinationService?.getLastDestination() ?? Future.value(null));
     
     _loadActiveTrip();
   }
@@ -125,6 +139,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _forceLogout(reason);
       } else if (event['type'] == 'networkRestored') {
         _locationService?.flushQueue();
+      } else if (event['type'] == 'deliveryDestination') {
+        final data = event['data'];
+        _destinationService?.handleIncomingPayload(Map<String, dynamic>.from(data));
       }
     });
   }
@@ -459,6 +476,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
             
             const SizedBox(height: 24),
+
+            if (_lastDestination != null) ...[
+              Card(
+                color: Colors.blue.shade50,
+                child: ListTile(
+                  leading: const Icon(Icons.place, color: Colors.blue),
+                  title: Text(_lastDestination!.label ?? 'Última ubicación asignada'),
+                  subtitle: Text(
+                    '${_lastDestination!.latitude.toStringAsFixed(5)}, ${_lastDestination!.longitude.toStringAsFixed(5)}',
+                  ),
+                  trailing: ElevatedButton(
+                    onPressed: () => _destinationService?.openInMaps(_lastDestination!),
+                    child: const Text('Abrir'),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             
             // Trip Status
             if (_activeTrip != null) ...[
@@ -664,6 +699,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _metricsSubscription?.cancel();
     _socketSubscription?.cancel();
+    _destinationSubscription?.cancel();
     _unauthorizedSubscription?.cancel();
     _tripPollingTimer?.cancel();
     _clockTimer?.cancel();

@@ -35,6 +35,16 @@ export interface LocationUpdate {
   timestamp: string;
 }
 
+export interface DeliveryDestination {
+  deliveryId: string;
+  deliveryName: string;
+  latitude: number;
+  longitude: number;
+  label?: string;
+  assignedBy?: string;
+  assignedAt: string;
+}
+
 export interface TripMetrics {
   currentSpeed: number;
   averageSpeed: number;

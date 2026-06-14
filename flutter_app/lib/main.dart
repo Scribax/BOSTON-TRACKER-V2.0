@@ -8,6 +8,7 @@ import 'bloc/auth/auth_bloc.dart';
 import 'services/api_service.dart';
 import 'services/storage_service.dart';
 import 'services/foreground_service.dart';
+import 'services/destination_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,21 +37,26 @@ void main() async {
   await storageService.init();
   
   final apiService = ApiService(storageService);
+  final destinationService = DestinationService(storageService);
+  await destinationService.init();
   
   runApp(BostonTrackerApp(
     apiService: apiService,
     storageService: storageService,
+    destinationService: destinationService,
   ));
 }
 
 class BostonTrackerApp extends StatefulWidget {
   final ApiService apiService;
   final StorageService storageService;
+  final DestinationService destinationService;
 
   const BostonTrackerApp({
     super.key,
     required this.apiService,
     required this.storageService,
+    required this.destinationService,
   });
 
   @override

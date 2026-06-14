@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
+import '../models/delivery_destination.dart';
 
 class StorageService {
   late final SharedPreferences _prefs;
@@ -52,6 +53,21 @@ class StorageService {
 
   Future<void> deleteCurrentTrip() async {
     await _prefs.remove('currentTrip');
+  }
+
+  // Delivery destination
+  Future<void> saveLastDestination(DeliveryDestination destination) async {
+    await _prefs.setString('lastDestination', jsonEncode(destination.toJson()));
+  }
+
+  Future<DeliveryDestination?> getLastDestination() async {
+    final raw = _prefs.getString('lastDestination');
+    if (raw == null) return null;
+    return DeliveryDestination.fromJson(jsonDecode(raw));
+  }
+
+  Future<void> deleteLastDestination() async {
+    await _prefs.remove('lastDestination');
   }
 
   // Trip History

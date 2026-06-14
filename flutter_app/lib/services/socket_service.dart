@@ -77,6 +77,10 @@ class SocketService {
       _eventController.add({'type': 'deliveryDestination', 'data': data});
     });
 
+    _socket!.onAny((event, data) {
+      _logger.d('Socket event: $event -> $data');
+    });
+
     _socket!.on('notification', (data) {
       _logger.i('Notification: $data');
       _eventController.add({'type': 'notification', 'data': data});

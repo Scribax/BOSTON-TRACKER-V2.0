@@ -210,6 +210,11 @@ io.on('connection', (socket) => {
         console.warn(`⚠️ Non-admin tried to send destination: ${socket.id}`);
         return;
       }
+      console.log('📍 deliveryDestination received from admin', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+        data,
+      });
       const roomName = `delivery-${data.deliveryId}`;
       io.to(roomName).emit('deliveryDestination', data);
       console.log(`📍 Destination sent to ${roomName}:`, data);

@@ -153,6 +153,12 @@ export default function TrackingPage() {
     if (!menuPoint) return;
     const delivery = deliveries.find((d) => d.id === deliveryId);
     if (!delivery) return;
+    console.log('[dashboard] sending destination', {
+      deliveryId,
+      deliveryName: delivery.name,
+      latitude: menuPoint.latitude,
+      longitude: menuPoint.longitude,
+    });
     const socket = getSocket();
     socket.emit('deliveryDestination', {
       deliveryId,
@@ -162,6 +168,7 @@ export default function TrackingPage() {
       label: `Destino para ${delivery.name}`,
       assignedAt: new Date().toISOString(),
     });
+    console.log('[dashboard] destination emitted', deliveryId);
     setMenuPoint(null);
   };
 

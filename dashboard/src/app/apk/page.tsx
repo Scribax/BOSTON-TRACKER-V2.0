@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/DashboardLayout';
 import api from '@/lib/api';
-import { Upload, Package, Clock, FileDown } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { Upload, Package, Clock, FileDown, QrCode } from 'lucide-react';
 
 interface ApkVersion {
   id: string;
@@ -20,6 +21,7 @@ export default function ApkPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [copied, setCopied] = useState(false);
+  const downloadUrl = 'http://186.64.123.15:5000/api/apk/download/latest';
 
   useEffect(() => {
     fetchVersions();
@@ -74,13 +76,12 @@ export default function ApkPage() {
   };
 
   const copyLink = () => {
-    const url = 'http://186.64.123.15:5000/api/apk/download/latest';
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+      navigator.clipboard.writeText(downloadUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
     } else {
       // HTTP fallback
       const el = document.createElement('textarea');
-      el.value = url;
+      el.value = downloadUrl;
       document.body.appendChild(el);
       el.select();
       document.execCommand('copy');
@@ -134,25 +135,47 @@ export default function ApkPage() {
 
         {/* Download link card */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <h3 className="font-semibold text-gray-900 mb-2">Enlace de descarga</h3>
-          <p className="text-sm text-gray-500 mb-3">
-            Comparte este enlace con los deliveries para que descarguen la última versión
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              readOnly
-              value="http://186.64.123.15:5000/api/apk/download/latest"
-              className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600"
-            />
-            <button
-              onClick={copyLink}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                copied ? 'bg-green-100 text-green-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-              }`}
-            >
-              {copied ? '¡Copiado!' : 'Copiar'}
-            </button>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-[280px]">
+              <h3 className="font-semibold text-gray-900 mb-2">Enlace de descarga</h3>
+              <p className="text-sm text-gray-500 mb-3">
+                Comparte este enlace con los deliveries para que descarguen la última versión
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={downloadUrl}
+                  className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600"
+                />
+                <button
+                  onClick={copyLink}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    copied ? 'bg-green-100 text-green-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  {copied ? '¡Copiado!' : 'Copiar'}
+                </button>
+              </div>
+            </div>
+
+            <div className="min-w-[240px] rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-center gap-2 mb-3 text-gray-700 font-semibold">
+                <QrCode className="w-4 h-4 text-red-600" />
+                QR de descarga
+              </div>
+              <div className="flex items-center justify-center bg-white rounded-lg border border-gray-200 p-3">
+                <QRCodeSVG
+                  value={downloadUrl}
+                  size={180}
+                  level="M"
+                  includeMargin
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-3 text-center">
+                Escanealo desde el celular para bajar el APK directo.
+              </p>
+            </div>
           </div>
         </div>
 

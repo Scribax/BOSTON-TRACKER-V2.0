@@ -57,3 +57,4 @@ flutter_app/.idea/
 .history
 .svn/
 Thumbs.db
+.dual-graph/

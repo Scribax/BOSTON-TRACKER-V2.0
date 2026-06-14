@@ -262,6 +262,10 @@ class ApiService {
     return _cachedUser;
   }
 
+  Future<String?> getToken() async {
+    return await _storage.getToken();
+  }
+
   void invalidateCache() {
     _cachedUser = null;
   }

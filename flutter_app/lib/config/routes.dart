@@ -1,16 +1,32 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/auth/auth_bloc.dart';
 import '../screens/login_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/trip_screen.dart';
 
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    notifyListeners();
+    _subscription = stream.listen((_) => notifyListeners());
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
+
 class AppRouter {
-  static final router = GoRouter(
+  static GoRouter createRouter(AuthBloc authBloc) => GoRouter(
     initialLocation: '/',
+    refreshListenable: GoRouterRefreshStream(authBloc.stream),
     redirect: (context, state) {
-      final authState = context.read<AuthBloc>().state;
+      final authState = authBloc.state;
 
       // Still loading - don't redirect, wait
       if (authState is AuthInitial || authState is AuthLoading) {

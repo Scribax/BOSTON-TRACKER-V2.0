@@ -1,14 +1,14 @@
-import 'dart:async';
 import 'dart:ui' show FontFeature;
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 import '../bloc/auth/auth_bloc.dart';
 import '../config/theme.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/location_service.dart';
+import '../services/foreground_service.dart';
 import '../models/trip.dart';
 import '../models/user.dart';
 
@@ -19,7 +19,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _socketService = SocketService();
   LocationService? _locationService;
   late StorageService _storageService;
@@ -38,7 +38,55 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initServices();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _onAppResumed();
+    }
+  }
+
+  Future<void> _onAppResumed() async {
+    // Reconnect socket if it dropped while in background
+    if (!_socketService.isConnected) {
+      final user = await _storageService.getUser();
+      if (user != null && user.token != null) {
+        _socketService.connect(user.id, user.token!);
+        _setupSocketListeners();
+      }
+    }
+    // Immediately check if trip was stopped while app was in background
+    if (_activeTrip != null) {
+      _loadActiveTripSilently();
+    }
+  }
+
+  Future<void> _loadActiveTripSilently() async {
+    try {
+      final response = await _apiService.getActiveTrip();
+      if (response.success && response.data == null && _activeTrip != null) {
+        _locationService?.stopTracking();
+        await ForegroundService.stopService();
+        _tripPollingTimer?.cancel();
+        _clockTimer?.cancel();
+        final trip = _activeTrip;
+        if (mounted) {
+          setState(() {
+            _activeTrip = null;
+            _liveMetrics = null;
+          });
+          _showTripStoppedDialog({
+            'totalMileage': trip?.mileage ?? 0,
+            'duration': trip?.duration ?? 0,
+          });
+        }
+      } else if (response.success && response.data != null) {
+        if (mounted) setState(() => _activeTrip = response.data);
+      }
+    } catch (_) {}
   }
 
   Future<void> _initServices() async {
@@ -65,10 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _setupSocketListeners() {
     _socketSubscription?.cancel();
-    _socketSubscription = _socketService.events.listen((event) {
+    _socketSubscription = _socketService.events.listen((event) async {
       if (event['type'] == 'tripStopped') {
         final data = event['data'];
         _locationService?.stopTracking();
+        await ForegroundService.stopService();
         _tripPollingTimer?.cancel();
         _showTripStoppedDialog(data);
       } else if (event['type'] == 'forceLogout') {
@@ -80,8 +129,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _forceLogout(String reason) {
+  void _forceLogout(String reason) async {
     _locationService?.stopTracking();
+    await ForegroundService.stopService();
     _tripPollingTimer?.cancel();
     if (!mounted) return;
     setState(() {
@@ -226,9 +276,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _stopTrip() async {
     setState(() => _isLoading = true);
-    
+
     _locationService?.stopTracking();
-    
+    await ForegroundService.stopService();
+
     try {
       final response = await _apiService.stopTrip();
       
@@ -275,10 +326,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _startClock() {
     _clockTimer?.cancel();
-    _elapsedSeconds = _activeTrip?.duration ?? 0;
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsedSeconds++);
+      if (mounted && _activeTrip != null) {
+        setState(() {
+          _elapsedSeconds = DateTime.now().difference(_activeTrip!.startTime).inSeconds;
+        });
+      }
     });
+    // Set immediately so the UI shows the correct value right away
+    if (_activeTrip != null) {
+      _elapsedSeconds = DateTime.now().difference(_activeTrip!.startTime).inSeconds;
+    }
   }
 
   String get _elapsedFormatted {
@@ -291,16 +349,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _startTripPolling() {
     _tripPollingTimer?.cancel();
-    bool graceOver = false;
-    // Grace period: ignore first 2min to avoid false positives right after trip start
-    Future.delayed(const Duration(minutes: 2), () { graceOver = true; });
-    _tripPollingTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
-      if (!mounted || _activeTrip == null || !graceOver) return;
+    final String? trackedTripId = _activeTrip?.id;
+    final DateTime startedAt = DateTime.now();
+    _tripPollingTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      if (!mounted || _activeTrip == null) return;
+      // Grace period: ignore first 30s to avoid false positives during startup
+      if (DateTime.now().difference(startedAt).inSeconds < 30) return;
       try {
         final response = await _apiService.getActiveTrip();
         if (response.success && response.data == null) {
-          // Trip was stopped externally (by admin)
+          // Only stop if the trip that disappeared is the one we started
+          if (_activeTrip?.id != trackedTripId) return;
           _locationService?.stopTracking();
+          await ForegroundService.stopService();
           _tripPollingTimer?.cancel();
           if (mounted) {
             final trip = _activeTrip;
@@ -318,8 +379,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _logout() {
+  void _logout() async {
     _locationService?.stopTracking();
+    await ForegroundService.stopService();
     _socketService.disconnect();
     context.read<AuthBloc>().add(LogoutRequested());
   }
@@ -355,126 +417,130 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildContent(User? user) {
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           // Welcome Card
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: AppTheme.primaryColor,
-                    child: Text(
-                      user?.name.substring(0, 1).toUpperCase() ?? 'D',
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Hola, ${user?.name ?? 'Delivery'}',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        Text(
-                          user?.employeeId ?? '',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppTheme.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 24),
-          
-          // Trip Status
-          if (_activeTrip != null) ...[
-            Text(
-              'Viaje Activo',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 16),
-            _buildTripCard(),
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.orange.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'El viaje solo puede ser finalizado por el administrador.',
-                      style: TextStyle(
-                        color: Colors.orange.shade800,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ] else ...[
-            // No active trip
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
                   children: [
-                    Icon(
-                      Icons.local_shipping,
-                      size: 80,
-                      color: AppTheme.textSecondary.withOpacity(0.5),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No hay viaje activo',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: AppTheme.textSecondary,
+                    CircleAvatar(
+                      backgroundColor: AppTheme.primaryColor,
+                      child: Text(
+                        user?.name.substring(0, 1).toUpperCase() ?? 'D',
+                        style: const TextStyle(color: Colors.white),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Presiona el botón para iniciar',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _startTrip,
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('INICIAR VIAJE'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.successColor,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                        ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Hola, ${user?.name ?? 'Delivery'}',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          Text(
+                            user?.employeeId ?? '',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
             ),
+            
+            const SizedBox(height: 24),
+            
+            // Trip Status
+            if (_activeTrip != null) ...[
+              Text(
+                'Viaje Activo',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 16),
+              _buildTripCard(),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'El viaje solo puede ser finalizado por el administrador.',
+                        style: TextStyle(
+                          color: Colors.orange.shade800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              // No active trip
+              SizedBox(
+                height: MediaQuery.of(context).size.height * 0.55,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.local_shipping,
+                        size: 80,
+                        color: AppTheme.textSecondary.withOpacity(0.5),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No hay viaje activo',
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Presiona el botón para iniciar',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _startTrip,
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('INICIAR VIAJE'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.successColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 20),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -524,36 +590,45 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildMetricItem(Icons.route, distanceStr, 'Distancia'),
-                _buildMetricItem(Icons.speed, speedStr, 'Velocidad'),
-              ],
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildMetricItem(Icons.route, distanceStr, 'Distancia'),
+                  const SizedBox(width: 24),
+                  _buildMetricItem(Icons.speed, speedStr, 'Velocidad'),
+                ],
+              ),
             ),
             if (_liveMetrics != null) ...[
               const SizedBox(height: 12),
               const Divider(height: 1),
               const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildMetricItem(
-                    Icons.speed,
-                    '${_liveMetrics!.maxSpeed} km/h',
-                    'Vel. Máx',
-                  ),
-                  _buildMetricItem(
-                    Icons.gps_fixed,
-                    '${_liveMetrics!.validLocations}',
-                    'Puntos GPS',
-                  ),
-                  _buildMetricItem(
-                    Icons.trending_up,
-                    '${_liveMetrics!.averageSpeed} km/h',
-                    'Vel. Prom',
-                  ),
-                ],
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildMetricItem(
+                      Icons.speed,
+                      '${_liveMetrics!.maxSpeed} km/h',
+                      'Vel. Máx',
+                    ),
+                    const SizedBox(width: 24),
+                    _buildMetricItem(
+                      Icons.gps_fixed,
+                      '${_liveMetrics!.validLocations}',
+                      'Puntos GPS',
+                    ),
+                    const SizedBox(width: 24),
+                    _buildMetricItem(
+                      Icons.trending_up,
+                      '${_liveMetrics!.averageSpeed} km/h',
+                      'Vel. Prom',
+                    ),
+                  ],
+                ),
               ),
             ],
           ],
@@ -586,6 +661,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _metricsSubscription?.cancel();
     _socketSubscription?.cancel();
     _unauthorizedSubscription?.cancel();

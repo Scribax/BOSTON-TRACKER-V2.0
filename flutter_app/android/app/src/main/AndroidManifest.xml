@@ -8,6 +8,8 @@
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <!-- Keep CPU alive during tracking -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -15,6 +17,16 @@
     <!-- Foreground service for background tracking -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Prevent Android battery optimization from killing the service -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Required for foreground service notifications on Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Required for foreground service behavior on newer Android versions -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
     <application
         android:label="Boston Tracker"
@@ -48,7 +60,7 @@
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location|dataSync" />
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

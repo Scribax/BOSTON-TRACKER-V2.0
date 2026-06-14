@@ -1,460 +1,233 @@
 import 'dart:async';
-import 'dart:math' show pi, sin, cos, sqrt, atan2, pow;
+import 'dart:math' show pi, sin, cos, sqrt, atan2;
+import 'package:battery_plus/battery_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:logger/logger.dart';
-import 'package:battery_plus/battery_plus.dart';
 import 'api_service.dart';
-import 'foreground_service.dart';
 
+/// LocationService — handles GPS tracking and backend communication directly.
+/// Uses Geolocator's foregroundNotificationConfig so its own Android foreground
+/// service keeps GPS alive when the phone is locked, without relying on
+/// flutter_foreground_task (which fails with ServiceTimeoutException on some devices).
 class LocationService {
   final ApiService _apiService;
   final Logger _logger = Logger();
+  final Battery _battery = Battery();
 
-  StreamSubscription<Position>? _positionStream;
-  final _locationController = StreamController<LocationData>.broadcast();
   final _metricsController = StreamController<TripMetrics>.broadcast();
-
-  Stream<LocationData> get locations => _locationController.stream;
   Stream<TripMetrics> get metrics => _metricsController.stream;
 
-  bool _isTracking = false;
+  StreamSubscription<Position>? _positionStream;
+  Timer? _metricsTimer;
+
   Position? _lastPosition;
-  double _totalDistance = 0.0;
+  double _totalDistanceKm = 0.0;
   double _maxSpeed = 0.0;
-  List<double> _speedSamples = [];
-  DateTime? _startTime;
+  final List<double> _speedSamples = [];
   int _validLocations = 0;
-  DateTime? _lastMetricsSent;
-
-  bool get isTracking => _isTracking;
-  double get totalDistance => _totalDistance;
-  int get durationSeconds => _startTime != null
-      ? DateTime.now().difference(_startTime!).inSeconds
-      : 0;
-
-  String? _deliveryName;
-  Timer? _heartbeatTimer;
-  Timer? _flushTimer;
-  Timer? _watchdogTimer;
-  Position? _lastKnownPosition;
+  DateTime? _startTime;
   DateTime? _lastSentTime;
-  DateTime? _lastPositionReceived;
-  final List<_QueuedLocation> _pendingQueue = [];
-  bool _isFlushing = false;
-  final Battery _battery = Battery();
-  int? _lastBatteryLevel;
+  int? _batteryLevel;
+  Timer? _batteryTimer;
+
+  bool _isTracking = false;
+  bool get isTracking => _isTracking;
 
   LocationService(this._apiService);
 
   Future<bool> checkPermissions() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return false;
-    }
-
+    if (!serviceEnabled) return false;
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return false;
-      }
+      if (permission == LocationPermission.denied) return false;
     }
-
-    if (permission == LocationPermission.deniedForever) {
-      return false;
-    }
-
+    if (permission == LocationPermission.deniedForever) return false;
     return true;
   }
 
-  Future<bool> requestBackgroundPermission() async {
-    LocationPermission permission = await Geolocator.checkPermission();
-    
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    
-    if (permission == LocationPermission.deniedForever) {
-      return false;
-    }
-
-    // Request background permission
-    if (permission == LocationPermission.whileInUse) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    return permission == LocationPermission.always ||
-           permission == LocationPermission.whileInUse;
-  }
-
-  void startTracking({String? deliveryName}) async {
+  void startTracking({String? deliveryName}) {
     if (_isTracking) return;
-
-    final hasPermission = await checkPermissions();
-    if (!hasPermission) {
-      _logger.e('Location permissions not granted');
-      return;
-    }
-
     _isTracking = true;
-    _deliveryName = deliveryName;
-    _totalDistance = 0.0;
-    _maxSpeed = 0.0;
-    _speedSamples = [];
-    _validLocations = 0;
     _startTime = DateTime.now();
+    _totalDistanceKm = 0.0;
+    _maxSpeed = 0.0;
+    _speedSamples.clear();
+    _validLocations = 0;
     _lastPosition = null;
-
-    _logger.i('Started location tracking');
-
-    // Heartbeat: send location every 30s even if not moving
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
-      if (!_isTracking || _lastKnownPosition == null) return;
-      final now = DateTime.now();
-      if (_lastSentTime != null && now.difference(_lastSentTime!).inSeconds < 28) return;
-      _logger.i('Heartbeat: sending location (delivery is stationary)');
-      final p = _lastKnownPosition!;
-      await _sendLocationToBackend(LocationData(
-        latitude: p.latitude,
-        longitude: p.longitude,
-        accuracy: p.accuracy,
-        speed: 0,
-        heading: p.heading,
-        timestamp: now,
-        totalDistanceKm: _totalDistance,
-        durationSeconds: DateTime.now().difference(_startTime!).inSeconds,
-      ));
-      _lastSentTime = now;
-    });
-
-    // Flush timer: retry queued locations every 15s independently of GPS
-    _flushTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
-      if (!_isTracking || _pendingQueue.isEmpty) return;
-      _logger.i('Flush timer: retrying ${_pendingQueue.length} queued locations');
-      await _flushQueue();
-    });
-
-    // Watchdog: restart GPS stream if no position received for 60s
-    _lastPositionReceived = DateTime.now();
-    _watchdogTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
-      if (!_isTracking) return;
-      final elapsed = DateTime.now().difference(_lastPositionReceived ?? DateTime.now()).inSeconds;
-      if (elapsed > 55) {
-        _logger.w('Watchdog: no GPS position for ${elapsed}s — restarting stream');
-        _restartPositionStream();
-      }
-    });
-
-    // Start foreground service to prevent OS from killing the app
-    await ForegroundService.startService(
-      deliveryName: deliveryName ?? 'repartidor',
-      tripId: '',
-    );
-
-    // Use medium accuracy + larger distanceFilter for older devices
-    final locationSettings = AndroidSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
-      intervalDuration: Duration(seconds: 5),
-      foregroundNotificationConfig: ForegroundNotificationConfig(
-        notificationText: 'Boston Tracker está usando tu ubicación',
-        notificationTitle: 'Rastreo activo',
-        enableWakeLock: true,
-      ),
-    );
-
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen(_onPositionUpdate, onError: (e) {
-      _logger.e('Position stream error: $e — restarting in 5s');
-      Future.delayed(const Duration(seconds: 5), () {
-        if (_isTracking) _restartPositionStream();
-      });
-    });
+    _lastSentTime = null;
+    _batteryLevel = null;
+    _startGpsStream(deliveryName: deliveryName);
+    _startMetricsTimer();
+    _refreshBatteryLevel();
+    _startBatteryTimer();
+    _logger.i('LocationService started (GPS + HTTP via Geolocator foreground service)');
   }
 
   void stopTracking() {
+    if (!_isTracking) return;
     _isTracking = false;
     _positionStream?.cancel();
     _positionStream = null;
-    _lastPosition = null;
-    _lastKnownPosition = null;
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
-    _flushTimer?.cancel();
-    _flushTimer = null;
-    _watchdogTimer?.cancel();
-    _watchdogTimer = null;
-    _lastSentTime = null;
-    _logger.i('Stopped location tracking');
-    ForegroundService.stopService();
+    _metricsTimer?.cancel();
+    _metricsTimer = null;
+    _batteryTimer?.cancel();
+    _batteryTimer = null;
+    _logger.i('LocationService stopped');
   }
 
-  void _restartPositionStream() {
+  void flushQueue() {
+    if (_lastPosition != null && _isTracking) {
+      _sendMetrics(_lastPosition!);
+    }
+  }
+
+  void _startGpsStream({String? deliveryName}) {
     _positionStream?.cancel();
-    _positionStream = null;
-    if (!_isTracking) return;
-    final locationSettings = AndroidSettings(
+    final settings = AndroidSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
+      distanceFilter: 8,
       intervalDuration: const Duration(seconds: 5),
-      foregroundNotificationConfig: const ForegroundNotificationConfig(
-        notificationText: 'Boston Tracker está usando tu ubicación',
-        notificationTitle: 'Rastreo activo',
-        enableWakeLock: true,
+      foregroundNotificationConfig: ForegroundNotificationConfig(
+        notificationTitle: 'Boston Tracker — En Ruta',
+        notificationText: deliveryName != null
+            ? 'Rastreando a $deliveryName'
+            : 'GPS activo',
+        enableWifiLock: true,
       ),
     );
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen(_onPositionUpdate, onError: (e) {
-      _logger.e('Position stream error: $e — restarting in 5s');
+    _positionStream = Geolocator.getPositionStream(locationSettings: settings)
+        .listen(_onPosition, onError: (e) {
+      _logger.e('GPS stream error: $e — restarting in 5s');
       Future.delayed(const Duration(seconds: 5), () {
-        if (_isTracking) _restartPositionStream();
+        if (_isTracking) _startGpsStream(deliveryName: deliveryName);
       });
     });
-    _lastPositionReceived = DateTime.now();
-    _logger.i('GPS stream restarted');
   }
 
-  void _onPositionUpdate(Position position) async {
-    if (!_isTracking) return;
-    _lastPositionReceived = DateTime.now();
+  void _onPosition(Position p) {
+    if (p.accuracy > 100) return;
 
-    // Filter low accuracy locations (more tolerant for older devices)
-    if (position.accuracy > 100) {
-      _logger.w('Low accuracy location ignored: ${position.accuracy}m');
-      return;
-    }
+    double distKm = 0;
+    double speedKmh = 0;
 
-    _validLocations++;
-    _lastKnownPosition = position;
-
-    // Calculate distance from last position
-    double distanceKm = 0;
-    double instantSpeed = 0;
-    final bool isFirstPosition = _lastPosition == null;
-
-    if (!isFirstPosition) {
-      distanceKm = _calculateDistance(
-        _lastPosition!.latitude,
-        _lastPosition!.longitude,
-        position.latitude,
-        position.longitude,
+    if (_lastPosition != null) {
+      distKm = _haversine(
+        _lastPosition!.latitude, _lastPosition!.longitude,
+        p.latitude, p.longitude,
       );
-
-      // Filter small movements (GPS noise) — only after first position
-      if (distanceKm * 1000 < 5) {
-        _lastPosition = position;
+      if (distKm * 1000 < 5) {
+        _lastPosition = p;
         return;
       }
-
-      // Calculate time difference
-      final timeDiff = position.timestamp.difference(_lastPosition!.timestamp);
-      final timeDiffHours = timeDiff.inSeconds / 3600;
-
-      if (timeDiffHours > 0) {
-        instantSpeed = distanceKm / timeDiffHours;
-      }
-
-      // Filter impossible speeds
-      if (instantSpeed > 120) {
-        _logger.w('Impossible speed ignored: ${instantSpeed.toStringAsFixed(1)} km/h');
-        return;
-      }
-
-      _totalDistance += distanceKm;
+      final timeDiffHours =
+          p.timestamp.difference(_lastPosition!.timestamp).inSeconds / 3600;
+      if (timeDiffHours > 0) speedKmh = distKm / timeDiffHours;
+      if (speedKmh > 120) return;
+      _totalDistanceKm += distKm;
     }
 
-    // Update foreground notification with current metrics
-    final distM = (_totalDistance * 1000).round();
-    final distStr = distM >= 1000
-        ? '${(_totalDistance).toStringAsFixed(2)} km'
-        : '$distM m';
-    ForegroundService.updateNotification('$distStr recorridos');
+    speedKmh = p.speed >= 0 ? p.speed * 3.6 : speedKmh;
+    if (speedKmh > _maxSpeed) _maxSpeed = speedKmh;
+    _speedSamples.add(speedKmh);
+    if (_speedSamples.length > 10) _speedSamples.removeAt(0);
+    _validLocations++;
+    _lastPosition = p;
 
-    // Update max speed
-    final currentSpeed = position.speed >= 0 ? position.speed * 3.6 : 0.0; // Convert m/s to km/h
-    if (currentSpeed > _maxSpeed) {
-      _maxSpeed = currentSpeed;
-    }
+    final avgSpeed = _speedSamples.isEmpty
+        ? 0.0
+        : _speedSamples.reduce((a, b) => a + b) / _speedSamples.length;
+    final durationSeconds = _startTime != null
+        ? DateTime.now().difference(_startTime!).inSeconds
+        : 0;
 
-    // Calculate average speed
-    _speedSamples.add(currentSpeed);
-    if (_speedSamples.length > 10) {
-      _speedSamples.removeAt(0);
-    }
-    final avgSpeed = _speedSamples.reduce((a, b) => a + b) / _speedSamples.length;
-
-    final duration = DateTime.now().difference(_startTime!).inSeconds;
-
-    final locationData = LocationData(
-      latitude: position.latitude,
-      longitude: position.longitude,
-      accuracy: position.accuracy,
-      speed: currentSpeed,
-      heading: position.heading,
-      timestamp: position.timestamp,
-      totalDistanceKm: _totalDistance,
-      durationSeconds: duration,
-    );
-
-    final metrics = TripMetrics(
-      currentSpeed: currentSpeed.round(),
+    _metricsController.add(TripMetrics(
+      currentSpeed: speedKmh.round(),
       averageSpeed: avgSpeed.round(),
       maxSpeed: _maxSpeed.round(),
-      totalDistanceM: (_totalDistance * 1000).round(),
-      totalTime: duration,
+      totalDistanceM: (_totalDistanceKm * 1000).round(),
+      totalTime: durationSeconds,
       validLocations: _validLocations,
-    );
+    ));
 
-    _locationController.add(locationData);
-    _metricsController.add(metrics);
-
-    // Send to backend
-    _lastSentTime = DateTime.now();
-    try {
-      final b = await _battery.batteryLevel;
-      _lastBatteryLevel = b;
-      _logger.d('🔋 Battery level: $b%');
-    } catch (e) {
-      _logger.w('Battery read failed: $e');
-    }
-    await _sendLocationToBackend(locationData);
-    // Throttle metrics to every 5 seconds
+    // Throttle HTTP sends to max once every 5 seconds
     final now = DateTime.now();
-    if (_lastMetricsSent == null ||
-        now.difference(_lastMetricsSent!).inSeconds >= 5) {
-      _lastMetricsSent = now;
-      await _sendMetricsToBackend(metrics, position.latitude, position.longitude);
-    }
+    if (_lastSentTime != null &&
+        now.difference(_lastSentTime!).inSeconds < 5) return;
+    _lastSentTime = now;
 
-    _lastPosition = position;
+    _apiService.updateLocation(
+      latitude: p.latitude,
+      longitude: p.longitude,
+      accuracy: p.accuracy,
+      speed: speedKmh,
+      heading: p.heading,
+      batteryLevel: _batteryLevel,
+    );
   }
 
-  Future<void> flushQueue() => _flushQueue();
-
-  Future<void> _flushQueue() async {
-    if (_isFlushing || _pendingQueue.isEmpty) return;
-    _isFlushing = true;
-    final batch = List<_QueuedLocation>.from(_pendingQueue);
-    for (final item in batch) {
-      try {
-        await _apiService.updateLocation(
-          latitude: item.data.latitude,
-          longitude: item.data.longitude,
-          accuracy: item.data.accuracy,
-          speed: item.data.speed,
-          heading: item.data.heading,
-          batteryLevel: item.batteryLevel,
-        );
-        _pendingQueue.remove(item);
-      } catch (e) {
-        final msg = e.toString();
-        if (msg.contains('404')) {
-          _logger.w('Trip not found (404) during flush — stopping tracking');
-          _pendingQueue.clear();
-          stopTracking();
-        }
-        break; // Still offline, stop trying
+  void _startMetricsTimer() {
+    _metricsTimer?.cancel();
+    _metricsTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_lastPosition != null && _isTracking) {
+        _sendMetrics(_lastPosition!);
       }
-    }
-    _isFlushing = false;
-    if (_pendingQueue.isNotEmpty) {
-      _logger.w('${_pendingQueue.length} locations still pending (offline)');
-    }
+    });
   }
 
-  Future<void> _sendLocationToBackend(LocationData data) async {
-    // Try to flush any queued locations first
-    if (_pendingQueue.isNotEmpty) await _flushQueue();
-    try {
-      await _apiService.updateLocation(
-        latitude: data.latitude,
-        longitude: data.longitude,
-        accuracy: data.accuracy,
-        speed: data.speed,
-        heading: data.heading,
-        batteryLevel: _lastBatteryLevel,
-      );
-    } on Exception catch (e) {
-      final msg = e.toString();
-      if (msg.contains('404')) {
-        _logger.w('Trip not found (404) — stopping tracking');
-        stopTracking();
-        return;
-      }
-      _logger.w('Offline: queuing location (queue size: ${_pendingQueue.length + 1})');
-      if (_pendingQueue.length < 500) _pendingQueue.add(_QueuedLocation(data, _lastBatteryLevel));
-    }
+  void _startBatteryTimer() {
+    _batteryTimer?.cancel();
+    _batteryTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _refreshBatteryLevel();
+    });
   }
 
-  Future<void> _sendMetricsToBackend(
-    TripMetrics metrics,
-    double latitude,
-    double longitude,
-  ) async {
+  Future<void> _refreshBatteryLevel() async {
     try {
-      await _apiService.updateMetrics(
-        currentSpeed: metrics.currentSpeed,
-        averageSpeed: metrics.averageSpeed,
-        maxSpeed: metrics.maxSpeed,
-        totalDistanceM: metrics.totalDistanceM,
-        totalTime: metrics.totalTime,
-        validLocations: metrics.validLocations,
-        latitude: latitude,
-        longitude: longitude,
-      );
+      _batteryLevel = await _battery.batteryLevel;
+      _logger.d('Battery level: $_batteryLevel%');
     } catch (e) {
-      _logger.e('Failed to send metrics: $e');
+      _logger.w('Unable to read battery level: $e');
     }
   }
 
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const R = 6371; // Earth's radius in km
-    
-    final dLat = _degreesToRadians(lat2 - lat1);
-    final dLon = _degreesToRadians(lon2 - lon1);
-    
-    final a = sin(dLat / 2) * sin(dLat / 2) +
-              cos(_degreesToRadians(lat1)) * cos(_degreesToRadians(lat2)) *
-              sin(dLon / 2) * sin(dLon / 2);
-    
-    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    
-    return R * c;
+  void _sendMetrics(Position p) {
+    final avgSpeed = _speedSamples.isEmpty
+        ? 0.0
+        : _speedSamples.reduce((a, b) => a + b) / _speedSamples.length;
+    final durationSeconds = _startTime != null
+        ? DateTime.now().difference(_startTime!).inSeconds
+        : 0;
+
+    _apiService.updateMetrics(
+      currentSpeed: (p.speed * 3.6).round(),
+      averageSpeed: avgSpeed.round(),
+      maxSpeed: _maxSpeed.round(),
+      totalDistanceM: (_totalDistanceKm * 1000).round(),
+      totalTime: durationSeconds,
+      validLocations: _validLocations,
+      latitude: p.latitude,
+      longitude: p.longitude,
+    );
   }
 
-  double _degreesToRadians(double degrees) {
-    return degrees * pi / 180;
+  double _haversine(double lat1, double lon1, double lat2, double lon2) {
+    const R = 6371.0;
+    final dLat = _toRad(lat2 - lat1);
+    final dLon = _toRad(lon2 - lon1);
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(_toRad(lat1)) * cos(_toRad(lat2)) *
+            sin(dLon / 2) * sin(dLon / 2);
+    return R * 2 * atan2(sqrt(a), sqrt(1 - a));
   }
+
+  double _toRad(double deg) => deg * pi / 180;
 
   void dispose() {
     stopTracking();
-    _locationController.close();
     _metricsController.close();
   }
-}
-
-class LocationData {
-  final double latitude;
-  final double longitude;
-  final double accuracy;
-  final double speed;
-  final double heading;
-  final DateTime timestamp;
-  final double totalDistanceKm;
-  final int durationSeconds;
-
-  LocationData({
-    required this.latitude,
-    required this.longitude,
-    required this.accuracy,
-    required this.speed,
-    required this.heading,
-    required this.timestamp,
-    required this.totalDistanceKm,
-    required this.durationSeconds,
-  });
 }
 
 class TripMetrics {
@@ -473,10 +246,4 @@ class TripMetrics {
     required this.totalTime,
     required this.validLocations,
   });
-}
-
-class _QueuedLocation {
-  final LocationData data;
-  final int? batteryLevel;
-  _QueuedLocation(this.data, this.batteryLevel);
 }

@@ -24,7 +24,7 @@ export function getSocket(): Socket {
       console.log('✅ Socket connected:', socket?.id);
       const latestToken = Cookies.get('token');
       if (latestToken) {
-        socket?.auth = { token: latestToken };
+        (socket as any).auth = { token: latestToken };
       }
       socket?.emit('join-admin');
       console.log('📡 Emitted join-admin with token present:', Boolean(latestToken));

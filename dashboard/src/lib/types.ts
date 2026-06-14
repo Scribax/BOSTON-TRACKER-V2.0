@@ -49,6 +49,8 @@ export interface ActiveDelivery {
   employeeId: string;
   tripId: string;
   startTime: string;
+  lastSeenAt?: string | null;
+  isOnline?: boolean;
   location: LocationUpdate | null;
   metrics: TripMetrics | null;
 }

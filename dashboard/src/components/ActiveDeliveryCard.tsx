@@ -24,6 +24,11 @@ export default function ActiveDeliveryCard({ delivery, isSelected, onSelect, onS
   const elapsed = delivery.startTime
     ? Math.floor((Date.now() - new Date(delivery.startTime).getTime()) / 60000)
     : 0;
+  const lastSeen = delivery.lastSeenAt ? new Date(delivery.lastSeenAt) : null;
+  const lastSeenLabel = lastSeen
+    ? lastSeen.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+    : 'Sin dato';
+  const online = delivery.isOnline ?? false;
 
   const formatDistance = (meters: number) => {
     if (!meters) return '0 m';
@@ -53,8 +58,8 @@ export default function ActiveDeliveryCard({ delivery, isSelected, onSelect, onS
           </div>
         </div>
         <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full flex items-center gap-1">
-          <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-          Activo
+          <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+          {online ? 'Activo' : 'Sin señal'}
         </span>
       </div>
 
@@ -113,10 +118,15 @@ export default function ActiveDeliveryCard({ delivery, isSelected, onSelect, onS
       )}
 
       <div className="flex items-center justify-between">
-        <span className="text-xs text-gray-500 flex items-center gap-1">
-          <Clock className="w-3 h-3" />
-          Inicio: {new Date(delivery.startTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        <div className="flex flex-col">
+          <span className="text-xs text-gray-500 flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            Inicio: {new Date(delivery.startTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+          <span className="text-[11px] text-gray-400">
+            Última conexión: {lastSeenLabel}
+          </span>
+        </div>
         <button
           onClick={(e) => {
             e.stopPropagation();

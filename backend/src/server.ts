@@ -172,15 +172,28 @@ io.on('connection', (socket) => {
   });
 
   // 🔥 CRITICAL: Join delivery room for individual notifications
-  socket.on('join-delivery', (userId: string) => {
+  socket.on('join-delivery', async (userId: string) => {
     const roomName = `delivery-${userId}`;
     socket.join(roomName);
+    try {
+      await User.update(
+        { lastLogin: new Date() },
+        { where: { id: userId } }
+      );
+    } catch (error) {
+      console.error('Failed to update delivery lastLogin on join:', error);
+    }
     console.log(`🚚 ${socket.id} joined delivery room: ${roomName}`);
   });
 
   // Handle location updates from mobile app
   socket.on('location-update', async (data) => {
     try {
+      await User.update(
+        { lastLogin: new Date() },
+        { where: { id: data.userId } }
+      );
+
       // Broadcast to all admins
       io.to('admins').emit('locationUpdate', {
         deliveryId: data.userId,

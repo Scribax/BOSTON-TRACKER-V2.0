@@ -33,6 +33,17 @@ const getIO = (req: AuthenticatedRequest): SocketIOServer => {
   return (req as AuthenticatedRequest & { io: SocketIOServer }).io;
 };
 
+const updateLastSeen = async (deliveryId: string): Promise<void> => {
+  try {
+    await User.update(
+      { lastLogin: new Date() },
+      { where: { id: deliveryId } }
+    );
+  } catch (error) {
+    console.error('Failed to update delivery lastLogin:', error);
+  }
+};
+
 /**
  * Convert Trip to TripDTO
  */
@@ -81,6 +92,9 @@ export const getActiveDeliveries = async (
           order: [['timestamp', 'DESC']],
         });
 
+        const lastSeenAt = lastLoc ? new Date((lastLoc as any).timestamp) : new Date((trip as any).startTime);
+        const isOnline = Date.now() - lastSeenAt.getTime() <= 3 * 60 * 1000;
+
         // Get real-time metrics
         const rtMetrics = trip.getRealTimeMetrics ? trip.getRealTimeMetrics() : null;
 
@@ -99,6 +113,8 @@ export const getActiveDeliveries = async (
           averageSpeed: trip.getAverageSpeed(),
           status: (trip as any).status,
           totalLocations: locationCount,
+          lastSeenAt,
+          isOnline,
           lastLocation: lastLoc ? {
             latitude: (lastLoc as any).latitude,
             longitude: (lastLoc as any).longitude,
@@ -194,6 +210,8 @@ export const startDeliveryTrip = async (
 
       await trip.save();
     }
+
+    await updateLastSeen(deliveryId);
 
     // Emit event to admins
     const io = getIO(req);
@@ -359,6 +377,8 @@ export const updateLocation = async (
       timestamp: timestamp ? new Date(timestamp) : new Date(),
     });
 
+    await updateLastSeen(deliveryId);
+
     // Incrementally update mileage using only the last saved location
     const lastLocation = await Location.findOne({
       where: { tripId: (activeTrip as any).id },
@@ -381,6 +401,8 @@ export const updateLocation = async (
     (activeTrip as any).totalLocations = ((activeTrip as any).totalLocations || 0) + 1;
 
     await activeTrip.save();
+
+    await updateLastSeen(deliveryId);
 
     // Emit to admins
     const io = getIO(req);

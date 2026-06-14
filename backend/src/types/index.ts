@@ -159,6 +159,8 @@ export interface ActiveDelivery {
   deliveryId: string;
   employeeId?: string;
   startTime: Date;
+  lastSeenAt?: Date;
+  isOnline?: boolean;
   mileage: number;
   duration: number;
   averageSpeed: number;

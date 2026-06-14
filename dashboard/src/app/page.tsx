@@ -40,6 +40,8 @@ export default function TrackingPage() {
         employeeId: t.delivery?.employeeId || t.employeeId || '',
         tripId: t.id || t.tripId,
         startTime: t.startTime,
+        lastSeenAt: t.lastSeenAt || t.lastLocation?.timestamp || null,
+        isOnline: t.isOnline ?? null,
         location: t.lastLocation || null,
         metrics: t.metrics || null,
       }));
@@ -68,6 +70,8 @@ export default function TrackingPage() {
         employeeId: data.employeeId || '',
         tripId: data.tripId,
         startTime: data.startTime || new Date().toISOString(),
+        lastSeenAt: data.startTime || new Date().toISOString(),
+        isOnline: true,
         location: null,
         metrics: null,
       };
@@ -98,7 +102,7 @@ export default function TrackingPage() {
       setDeliveries((prev) =>
         prev.map((d) =>
           d.id === data.deliveryId
-            ? { ...d, location: loc }
+            ? { ...d, location: loc, lastSeenAt: loc.timestamp, isOnline: true }
             : d
         )
       );
@@ -114,8 +118,23 @@ export default function TrackingPage() {
       );
     });
 
+    const statusTimer = setInterval(() => {
+      setDeliveries((prev) =>
+        prev.map((d) => {
+          const lastSeen = d.lastSeenAt ? new Date(d.lastSeenAt).getTime() : null;
+          if (!lastSeen) return d;
+          const minutes = (Date.now() - lastSeen) / 60000;
+          return {
+            ...d,
+            isOnline: minutes < 3,
+          };
+        })
+      );
+    }, 30000);
+
     return () => {
       clearInterval(interval);
+      clearInterval(statusTimer);
       socket.off('tripStarted');
       socket.off('tripStopped');
       socket.off('locationUpdate');

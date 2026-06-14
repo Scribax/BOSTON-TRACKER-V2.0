@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/DashboardLayout';
 import api from '@/lib/api';
-import { Download, Upload, Package, Clock, FileDown } from 'lucide-react';
+import { Upload, Package, Clock, FileDown } from 'lucide-react';
 
 interface ApkVersion {
   id: string;

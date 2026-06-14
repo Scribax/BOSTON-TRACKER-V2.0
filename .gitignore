@@ -27,6 +27,7 @@ coverage/
 .DS_Store
 *.pem
 .vercel
+deploy-commands.html
 
 # ===========================
 # FLUTTER / DART

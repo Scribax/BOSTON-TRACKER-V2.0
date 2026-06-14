@@ -141,9 +141,11 @@ io.use((socket, next) => {
     const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role?: string };
     socket.data.userId = decoded.id;
     socket.data.role = decoded.role ?? null;
+    console.log(`🔐 Socket auth OK: ${socket.id} user=${decoded.id} role=${decoded.role ?? 'unknown'}`);
     next();
   } catch (error) {
-    // Allow connection even with invalid token for dashboard reconnects
+    const reason = error instanceof Error ? error.name : 'UnknownError';
+    console.warn(`⚠️ Socket auth failed: ${socket.id} reason=${reason}`);
     socket.data.userId = null;
     socket.data.role = null;
     next();
@@ -160,17 +162,21 @@ io.on('connection', (socket) => {
   // Join admin room — only allow users with admin role
   socket.on('join-admin', () => {
     const token = socket.handshake.auth.token as string | undefined;
-    if (!token) return;
+    if (!token || token === 'undefined' || token === 'null') {
+      console.warn(`⚠️ join-admin without token: ${socket.id}`);
+      return;
+    }
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role?: string };
       if (decoded.role === 'admin') {
         socket.join('admins');
         console.log(`👤 ${socket.id} joined admin room (verified)`);
       } else {
-        console.warn(`⚠️ Non-admin tried to join admin room: ${socket.id}`);
+        console.warn(`⚠️ Non-admin tried to join admin room: ${socket.id} role=${decoded.role ?? 'unknown'}`);
       }
-    } catch {
-      console.warn(`⚠️ Invalid token in join-admin: ${socket.id}`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.name : 'UnknownError';
+      console.warn(`⚠️ Invalid token in join-admin: ${socket.id} reason=${reason}`);
     }
   });
 

@@ -22,8 +22,12 @@ export function getSocket(): Socket {
 
     socket.on('connect', () => {
       console.log('✅ Socket connected:', socket?.id);
+      const latestToken = Cookies.get('token');
+      if (latestToken) {
+        socket?.auth = { token: latestToken };
+      }
       socket?.emit('join-admin');
-      console.log('📡 Emitted join-admin');
+      console.log('📡 Emitted join-admin with token present:', Boolean(latestToken));
     });
 
     socket.on('connect_error', (err) => {
@@ -32,6 +36,10 @@ export function getSocket(): Socket {
 
     socket.on('disconnect', (reason) => {
       console.log('🔌 Socket disconnected:', reason);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('❌ Socket connect_error details:', err);
     });
 
     socket.on('locationUpdate', (data: any) => {

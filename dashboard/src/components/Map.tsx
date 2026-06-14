@@ -9,9 +9,10 @@ interface MapProps {
   deliveries: ActiveDelivery[];
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  centerRequest?: number;
 }
 
-export default function Map({ deliveries, selectedId, onSelect }: MapProps) {
+export default function Map({ deliveries, selectedId, onSelect, centerRequest }: MapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Record<string, L.Marker>>({});
   const containerRef = useRef<HTMLDivElement>(null);
@@ -108,23 +109,28 @@ export default function Map({ deliveries, selectedId, onSelect }: MapProps) {
       }
     });
 
-    // Center on selected OR fit all pins
-    if (selectedId) {
-      const selected = deliveries.find((d) => d.id === selectedId);
-      const lat = selected?.location?.latitude;
-      const lng = selected?.location?.longitude;
-      if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
-        mapRef.current.setView([lat, lng], 15, { animate: true });
-      }
-    } else {
-      const validPoints = deliveries
-        .filter((d) => d.location?.latitude != null && d.location?.longitude != null)
-        .map((d) => [d.location!.latitude, d.location!.longitude] as [number, number]);
-      if (validPoints.length > 1) {
-        mapRef.current.fitBounds(L.latLngBounds(validPoints), { padding: [40, 40], animate: true, maxZoom: 16 });
-      }
-    }
   }, [deliveries, selectedId, onSelect]);
+
+  useEffect(() => {
+    if (!mapRef.current || centerRequest == null) return;
+
+    const selected = deliveries.find((d) => d.id === selectedId);
+    const lat = selected?.location?.latitude;
+    const lng = selected?.location?.longitude;
+
+    if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
+      mapRef.current.setView([lat, lng], 15, { animate: true });
+      return;
+    }
+
+    const validPoints = deliveries
+      .filter((d) => d.location?.latitude != null && d.location?.longitude != null)
+      .map((d) => [d.location!.latitude, d.location!.longitude] as [number, number]);
+
+    if (validPoints.length > 1) {
+      mapRef.current.fitBounds(L.latLngBounds(validPoints), { padding: [40, 40], animate: true, maxZoom: 16 });
+    }
+  }, [centerRequest, deliveries, selectedId]);
 
   return <div ref={containerRef} className="w-full h-full" />;
 }

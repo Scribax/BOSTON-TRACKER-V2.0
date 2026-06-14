@@ -7,7 +7,7 @@ import ActiveDeliveryCard from '@/components/ActiveDeliveryCard';
 import { getSocket } from '@/lib/socket';
 import api from '@/lib/api';
 import { ActiveDelivery } from '@/lib/types';
-import { Truck, Radio, Search, WifiOff } from 'lucide-react';
+import { Truck, Radio, Search, WifiOff, Focus } from 'lucide-react';
 
 const Map = dynamic(() => import('@/components/Map'), { ssr: false });
 
@@ -28,6 +28,7 @@ export default function TrackingPage() {
   const [deliveries, setDeliveries] = useState<ActiveDelivery[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [centerRequest, setCenterRequest] = useState(0);
 
   const fetchActiveTrips = useCallback(async () => {
     try {
@@ -162,7 +163,18 @@ export default function TrackingPage() {
             deliveries={deliveries}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            centerRequest={centerRequest}
           />
+
+          <div className="absolute top-4 right-4 z-[500]">
+            <button
+              onClick={() => setCenterRequest((v) => v + 1)}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/95 shadow-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Focus className="w-4 h-4 text-red-600" />
+              Centrar mapa
+            </button>
+          </div>
         </div>
 
         {/* Sidebar panel */}

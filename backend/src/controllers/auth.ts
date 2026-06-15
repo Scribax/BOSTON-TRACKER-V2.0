@@ -14,18 +14,24 @@ import type {
   AuthenticatedRequest,
   LoginRequest,
   LoginResponse,
+  RefreshRequest,
   UserDTO,
   CreateUserRequest,
 } from '../types/index';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
+const JWT_REFRESH_EXPIRE = process.env.JWT_REFRESH_EXPIRE || '30d';
 
 /**
  * Generate JWT token
  */
 const generateToken = (id: string, role: string): string => {
   return jwt.sign({ id, role }, JWT_SECRET as string, { expiresIn: JWT_EXPIRE } as any);
+};
+
+const generateRefreshToken = (id: string, role: string): string => {
+  return jwt.sign({ id, role, type: 'refresh' }, JWT_SECRET as string, { expiresIn: JWT_REFRESH_EXPIRE } as any);
 };
 
 /**
@@ -98,6 +104,7 @@ export const login = async (
 
     // Generate token
     const token = generateToken(user.id, user.role);
+    const refreshToken = generateRefreshToken(user.id, user.role);
 
     res.json({
       success: true,
@@ -106,6 +113,7 @@ export const login = async (
         success: true,
         message: 'Login exitoso',
         token,
+        refreshToken,
         user: toUserDTO(user),
       },
     });
@@ -147,6 +155,69 @@ export const getCurrentUser = async (
       success: false,
       message: 'Error interno del servidor',
       error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
+
+// ==========================================
+// REFRESH TOKEN
+// ==========================================
+
+export const refreshToken = async (
+  req: AuthenticatedRequest,
+  res: Response<ApiResponse<LoginResponse>>
+): Promise<void> => {
+  try {
+    const { refreshToken: token } = req.body as RefreshRequest;
+
+    if (!token) {
+      res.status(400).json({
+        success: false,
+        message: 'Refresh token requerido',
+        error: 'Missing refresh token',
+      });
+      return;
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role?: string; type?: string };
+    if (decoded.type !== 'refresh') {
+      res.status(401).json({
+        success: false,
+        message: 'Refresh token inválido',
+        error: 'Invalid refresh token',
+      });
+      return;
+    }
+
+    const user = await User.findByPk(decoded.id);
+    if (!user || !user.isActive) {
+      res.status(401).json({
+        success: false,
+        message: 'Usuario no válido',
+        error: 'User invalid',
+      });
+      return;
+    }
+
+    const accessToken = generateToken(user.id, user.role);
+    const newRefreshToken = generateRefreshToken(user.id, user.role);
+
+    res.json({
+      success: true,
+      message: 'Token renovado',
+      data: {
+        success: true,
+        message: 'Token renovado',
+        token: accessToken,
+        refreshToken: newRefreshToken,
+        user: toUserDTO(user),
+      },
+    });
+  } catch (error) {
+    res.status(401).json({
+      success: false,
+      message: 'Refresh expirado o inválido',
+      error: error instanceof Error ? error.message : 'Invalid refresh token',
     });
   }
 };

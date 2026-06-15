@@ -10,6 +10,7 @@ class User extends Equatable {
   final bool isActive;
   final DateTime? lastLogin;
   final String? token;
+  final String? refreshToken;
   final bool hasActiveTrip;
   final String? tripId;
 
@@ -23,6 +24,7 @@ class User extends Equatable {
     required this.isActive,
     this.lastLogin,
     this.token,
+    this.refreshToken,
     this.hasActiveTrip = false,
     this.tripId,
   });
@@ -40,6 +42,7 @@ class User extends Equatable {
           ? DateTime.parse(json['lastLogin'])
           : null,
       token: json['token'],
+      refreshToken: json['refreshToken'],
       hasActiveTrip: json['hasActiveTrip'] ?? false,
       tripId: json['tripId'],
     );
@@ -56,6 +59,7 @@ class User extends Equatable {
       'isActive': isActive,
       'lastLogin': lastLogin?.toIso8601String(),
       'token': token,
+      'refreshToken': refreshToken,
       'hasActiveTrip': hasActiveTrip,
       'tripId': tripId,
     };
@@ -71,6 +75,7 @@ class User extends Equatable {
     bool? isActive,
     DateTime? lastLogin,
     String? token,
+    String? refreshToken,
     bool? hasActiveTrip,
     String? tripId,
   }) {
@@ -84,6 +89,7 @@ class User extends Equatable {
       isActive: isActive ?? this.isActive,
       lastLogin: lastLogin ?? this.lastLogin,
       token: token ?? this.token,
+      refreshToken: refreshToken ?? this.refreshToken,
       hasActiveTrip: hasActiveTrip ?? this.hasActiveTrip,
       tripId: tripId ?? this.tripId,
     );
@@ -103,6 +109,7 @@ class User extends Equatable {
         isActive,
         lastLogin,
         token,
+        refreshToken,
         hasActiveTrip,
         tripId,
       ];

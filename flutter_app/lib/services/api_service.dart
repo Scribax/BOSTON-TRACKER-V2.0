@@ -11,6 +11,7 @@ class ApiService {
   final Logger _logger = Logger();
   User? _cachedUser;
   final _unauthorizedController = StreamController<void>.broadcast();
+  bool _refreshingToken = false;
 
   Stream<void> get onUnauthorized => _unauthorizedController.stream;
 
@@ -42,10 +43,43 @@ class ApiService {
         return handler.next(response);
       },
       onError: (error, handler) {
-        _logger.e('Error: ${error.message}', error: error);
-        return handler.next(error);
+        _handleError(error, handler);
       },
     ));
+  }
+
+  void _handleError(DioException error, ErrorInterceptorHandler handler) {
+    _handleErrorAsync(error, handler);
+  }
+
+  Future<void> _handleErrorAsync(DioException error, ErrorInterceptorHandler handler) async {
+    final statusCode = error.response?.statusCode;
+    if (statusCode == 401) {
+      final requestOptions = error.requestOptions;
+      final alreadyRetried = requestOptions.extra['retried_after_refresh'] == true;
+      if (!alreadyRetried && await refreshSession()) {
+        try {
+          requestOptions.extra['retried_after_refresh'] = true;
+          final token = await _storage.getToken();
+          if (token != null) {
+            requestOptions.headers['Authorization'] = 'Bearer $token';
+          }
+          final retryResponse = await _dio.fetch(requestOptions);
+          handler.resolve(retryResponse);
+          return;
+        } catch (_) {
+          // Fall through to unauthorized handling below.
+        }
+      }
+
+      _cachedUser = null;
+      _unauthorizedController.add(null);
+      handler.next(error);
+      return;
+    }
+
+    _logger.e('Error: ${error.message}', error: error);
+    handler.next(error);
   }
 
   // Auth
@@ -64,14 +98,19 @@ class ApiService {
       if (response.data['success'] == true) {
         final inner = response.data['data'] ?? {};
         final token = inner['token'];
+        final refreshToken = inner['refreshToken'];
         final userJson = inner['user'] ?? inner;
         final user = User.fromJson({
           ...Map<String, dynamic>.from(userJson),
           'token': token,
+          'refreshToken': refreshToken,
         });
         
         if (token != null) {
           await _storage.saveToken(token);
+        }
+        if (refreshToken != null) {
+          await _storage.saveRefreshToken(refreshToken);
         }
         
         return ApiResponse.success(user);
@@ -262,6 +301,47 @@ class ApiService {
     return _cachedUser;
   }
 
+  Future<bool> refreshSession() async {
+    if (_refreshingToken) return false;
+    _refreshingToken = true;
+    try {
+      final refreshToken = await _storage.getRefreshToken();
+      if (refreshToken == null || refreshToken.isEmpty) {
+        return false;
+      }
+
+      final response = await _dio.post('/auth/refresh', data: {
+        'refreshToken': refreshToken,
+      });
+
+      if (response.data['success'] == true) {
+        final inner = response.data['data'] ?? {};
+        final token = inner['token'];
+        final newRefreshToken = inner['refreshToken'];
+        final userJson = inner['user'] ?? inner;
+        final user = User.fromJson({
+          ...Map<String, dynamic>.from(userJson),
+          'token': token,
+          'refreshToken': newRefreshToken,
+        });
+        if (token != null) {
+          await _storage.saveToken(token);
+        }
+        if (newRefreshToken != null) {
+          await _storage.saveRefreshToken(newRefreshToken);
+        }
+        await _storage.saveUser(user);
+        _cachedUser = user;
+        return true;
+      }
+      return false;
+    } on DioException catch (_) {
+      return false;
+    } finally {
+      _refreshingToken = false;
+    }
+  }
+
   Future<String?> getToken() async {
     return await _storage.getToken();
   }
@@ -280,9 +360,7 @@ class ApiService {
       final message = e.response?.data?['message'] ?? 'Error del servidor';
 
       if (statusCode == 401) {
-        _cachedUser = null;
-        _unauthorizedController.add(null);
-        return ApiResponse.error('Sesión expirada', code: 401);
+        return ApiResponse.error(message, code: 401);
       }
 
       return ApiResponse.error(message, code: statusCode);

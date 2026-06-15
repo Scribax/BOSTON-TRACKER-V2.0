@@ -53,7 +53,12 @@ export interface LoginResponse {
   success: boolean;
   message?: string;
   token?: string;
+  refreshToken?: string;
   user?: UserDTO;
+}
+
+export interface RefreshRequest {
+  refreshToken: string;
 }
 
 // ==========================================

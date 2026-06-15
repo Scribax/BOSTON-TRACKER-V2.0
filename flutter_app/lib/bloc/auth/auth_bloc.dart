@@ -82,6 +82,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         if (response.success && response.data != null) {
           await _storageService.saveUser(response.data!);
           emit(AuthAuthenticated(response.data!));
+        } else if (await _apiService.refreshSession()) {
+          final refreshed = await _apiService.getMe();
+          if (refreshed.success && refreshed.data != null) {
+            await _storageService.saveUser(refreshed.data!);
+            emit(AuthAuthenticated(refreshed.data!));
+          } else {
+            await _storageService.clearAll();
+            emit(const AuthUnauthenticated());
+          }
         } else {
           await _storageService.clearAll();
           emit(const AuthUnauthenticated());
@@ -111,6 +120,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         
         if (response.data!.token != null) {
           await _storageService.saveToken(response.data!.token!);
+        }
+        if (response.data!.refreshToken != null) {
+          await _storageService.saveRefreshToken(response.data!.refreshToken!);
         }
         
         emit(AuthAuthenticated(response.data!));

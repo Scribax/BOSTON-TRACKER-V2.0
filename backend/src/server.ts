@@ -19,7 +19,7 @@ import authRoutes from './routes/auth';
 import deliveryRoutes from './routes/deliveries';
 import tripRoutes from './routes/trips';
 import apkRoutes from './routes/apk';
-import { markDeliverySeen } from './utils/connectionState';
+import { markDeliverySeen, setLastDeliveryDestination, getLastDeliveryDestination } from './utils/connectionState';
 import type { ApiResponse, AuthenticatedRequest, ServerToClientEvents, ClientToServerEvents, DeliveryDestinationPayload } from './types/index';
 
 // Load environment variables
@@ -186,6 +186,12 @@ io.on('connection', (socket) => {
     socket.join(roomName);
     markDeliverySeen(userId);
     console.log(`🚚 ${socket.id} joined delivery room: ${roomName}`);
+
+    const lastDestination = getLastDeliveryDestination(userId);
+    if (lastDestination) {
+      socket.emit('deliveryDestination', lastDestination as DeliveryDestinationPayload);
+      console.log(`📍 Re-sent last destination to ${roomName}`);
+    }
   });
 
   // Handle location updates from mobile app
@@ -222,6 +228,7 @@ io.on('connection', (socket) => {
         data,
       });
       const roomName = `delivery-${data.deliveryId}`;
+      setLastDeliveryDestination(data.deliveryId, data);
       io.to(roomName).emit('deliveryDestination', data);
       console.log(`📍 Destination sent to ${roomName}:`, data);
     } catch (error) {

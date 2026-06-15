@@ -45,7 +45,7 @@ class AppTheme {
         centerTitle: true,
         systemOverlayStyle: SystemUiOverlayStyle.light,
       ),
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         elevation: 2,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -135,7 +135,7 @@ class AppTheme {
         centerTitle: true,
         systemOverlayStyle: SystemUiOverlayStyle.light,
       ),
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         elevation: 2,
         color: cardDark,
         shape: RoundedRectangleBorder(

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:logger/logger.dart';
@@ -55,11 +56,25 @@ class DestinationService {
 
   Future<void> openInMaps(DeliveryDestination destination) async {
     _logger.i('Opening Maps for ${destination.latitude}, ${destination.longitude}');
-    final uri = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=${destination.latitude},${destination.longitude}',
-    );
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final label = destination.label ?? destination.deliveryName;
+    final mapsUri = defaultTargetPlatform == TargetPlatform.android
+        ? Uri.parse(
+            'geo:${destination.latitude},${destination.longitude}?q=${destination.latitude},${destination.longitude}(${Uri.encodeComponent(label)})',
+          )
+        : Uri.parse(
+            'https://www.google.com/maps/search/?api=1&query=${destination.latitude},${destination.longitude}',
+          );
+
+    try {
+      final launched = await launchUrl(
+        mapsUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        _logger.w('Could not launch Maps URI: $mapsUri');
+      }
+    } catch (e, st) {
+      _logger.e('Failed to open Maps', error: e, stackTrace: st);
     }
   }
 

@@ -201,4 +201,55 @@ router.delete('/details/:id', authenticate, authorize('admin'), async (
   }
 });
 
+// ==========================================
+// BULK DELETE TRIPS (Admin)
+// ==========================================
+
+router.delete('/history/bulk-delete', authenticate, authorize('admin'), async (
+  req: AuthenticatedRequest,
+  res: Response<ApiResponse>
+): Promise<void> => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+
+    if (ids.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: 'No se recibieron viajes para eliminar',
+        error: 'No trip ids provided',
+      });
+      return;
+    }
+
+    const trips = await Trip.findAll({ where: { id: ids } });
+    const activeTrips = trips.filter((trip) => (trip as any).status === 'active');
+    if (activeTrips.length > 0) {
+      res.status(400).json({
+        success: false,
+        message: 'No se pueden eliminar viajes activos',
+        error: 'Cannot delete active trips',
+      });
+      return;
+    }
+
+    for (const trip of trips) {
+      await Location.destroy({ where: { tripId: (trip as any).id } });
+      await trip.destroy();
+    }
+
+    res.json({
+      success: true,
+      message: 'Viajes eliminados exitosamente',
+      data: { deleted: trips.length },
+    });
+  } catch (error) {
+    console.error('Bulk delete trips error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
 export default router;

@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import DashboardLayout from '@/components/DashboardLayout';
 import api from '@/lib/api';
 import { Trip } from '@/lib/types';
-import { History, MapPin, X, Search, Download } from 'lucide-react';
+import { History, MapPin, X, Search, Download, Trash2, CheckSquare, Square } from 'lucide-react';
 
 const TripRouteMap = dynamic(() => import('@/components/TripRouteMap'), { ssr: false });
 
@@ -18,6 +18,8 @@ export default function HistoryPage() {
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [routeLocations, setRouteLocations] = useState<any[]>([]);
   const [loadingRoute, setLoadingRoute] = useState(false);
+  const [selectedTripIds, setSelectedTripIds] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { fetchTrips(); }, []);
 
@@ -90,6 +92,57 @@ export default function HistoryPage() {
     return km < 1 ? `${(km * 1000).toFixed(0)} m` : `${km.toFixed(2)} km`;
   };
 
+  const toggleTripSelection = (tripId: string) => {
+    setSelectedTripIds((prev) =>
+      prev.includes(tripId) ? prev.filter((id) => id !== tripId) : [...prev, tripId]
+    );
+  };
+
+  const selectAllFiltered = () => {
+    const ids = filtered.map((trip) => trip.id);
+    setSelectedTripIds(ids);
+  };
+
+  const clearSelection = () => {
+    setSelectedTripIds([]);
+  };
+
+  const deleteSelectedTrips = async () => {
+    if (selectedTripIds.length === 0) return;
+    if (!confirm(`¿Eliminar ${selectedTripIds.length} viajes seleccionados?`)) return;
+    setDeleting(true);
+    try {
+      await api.delete('/trips/history/bulk-delete', { data: { ids: selectedTripIds } });
+      setTrips((prev) => prev.filter((trip) => !selectedTripIds.includes(trip.id)));
+      setSelectedTripIds([]);
+      if (selectedTrip && selectedTripIds.includes(selectedTrip.id)) {
+        setSelectedTrip(null);
+        setRouteLocations([]);
+      }
+    } catch (err) {
+      console.error('Error deleting selected trips:', err);
+      alert('No se pudieron eliminar algunos viajes');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const deleteSingleTrip = async (tripId: string) => {
+    if (!confirm('¿Eliminar este viaje?')) return;
+    try {
+      await api.delete(`/trips/details/${tripId}`);
+      setTrips((prev) => prev.filter((trip) => trip.id !== tripId));
+      setSelectedTripIds((prev) => prev.filter((id) => id !== tripId));
+      if (selectedTrip?.id === tripId) {
+        setSelectedTrip(null);
+        setRouteLocations([]);
+      }
+    } catch (err) {
+      console.error('Error deleting trip:', err);
+      alert('No se pudo eliminar el viaje');
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="p-6">
@@ -101,10 +154,42 @@ export default function HistoryPage() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500">{filtered.length} de {trips.length} viajes</span>
+            {selectedTripIds.length > 0 && (
+              <span className="text-sm text-red-600 font-medium">
+                {selectedTripIds.length} seleccionados
+              </span>
+            )}
             <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
               <input type="checkbox" checked={hideShort} onChange={e => setHideShort(e.target.checked)} className="rounded" />
               Ocultar &lt;1min
             </label>
+            {filtered.length > 0 && (
+              <button
+                onClick={selectAllFiltered}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors"
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                Seleccionar todos
+              </button>
+            )}
+            {selectedTripIds.length > 0 && (
+              <>
+                <button
+                  onClick={clearSelection}
+                  className="px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 text-xs font-medium rounded-lg border border-gray-200 transition-colors"
+                >
+                  Limpiar selección
+                </button>
+                <button
+                  onClick={deleteSelectedTrips}
+                  disabled={deleting}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {deleting ? 'Eliminando...' : 'Eliminar seleccionados'}
+                </button>
+              </>
+            )}
             {filtered.length > 0 && (
               <button onClick={exportCSV}
                 className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors">
@@ -173,6 +258,15 @@ export default function HistoryPage() {
                 {filtered.map((trip) => (
                   <tr key={trip.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
+                      <button
+                        onClick={() => toggleTripSelection(trip.id)}
+                        className="text-gray-500 hover:text-red-600"
+                        title={selectedTripIds.includes(trip.id) ? 'Deseleccionar' : 'Seleccionar'}
+                      >
+                        {selectedTripIds.includes(trip.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
                       <p className="text-sm font-medium text-gray-900">{trip.delivery?.name || 'N/A'}</p>
                       <p className="text-xs text-gray-500">{trip.delivery?.employeeId || trip.deliveryId?.slice(0, 8)}</p>
                     </td>
@@ -188,11 +282,20 @@ export default function HistoryPage() {
                     <td className="px-4 py-3 text-sm text-gray-600">{trip.averageSpeed?.toFixed(0) || 0} km/h</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{trip.maxSpeed?.toFixed(0) || 0} km/h</td>
                     <td className="px-4 py-3">
-                      <button onClick={() => openRoute(trip)}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                        title="Ver ruta">
-                        <MapPin className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => openRoute(trip)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="Ver ruta">
+                          <MapPin className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteSingleTrip(trip.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="Eliminar viaje"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

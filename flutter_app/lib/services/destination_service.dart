@@ -36,7 +36,7 @@ class DestinationService {
     await _storage.saveLastDestination(destination);
     _controller.add(destination);
     await _showNotification(destination);
-    _emitAck?.({
+    _emitAck?.call({
       'deliveryId': destination.deliveryId,
       'deliveryName': destination.deliveryName,
       'assignedAt': destination.assignedAt.toIso8601String(),

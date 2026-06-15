@@ -13,10 +13,15 @@ class DestinationService {
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
   final Logger _logger = Logger();
   final _controller = StreamController<DeliveryDestination>.broadcast();
+  void Function(Map<String, dynamic>)? _emitAck;
 
   Stream<DeliveryDestination> get destinations => _controller.stream;
 
   DestinationService(this._storage);
+
+  void bindAckEmitter(void Function(Map<String, dynamic>) emitAck) {
+    _emitAck = emitAck;
+  }
 
   Future<void> init() async {
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -31,6 +36,12 @@ class DestinationService {
     await _storage.saveLastDestination(destination);
     _controller.add(destination);
     await _showNotification(destination);
+    _emitAck?.({
+      'deliveryId': destination.deliveryId,
+      'deliveryName': destination.deliveryName,
+      'assignedAt': destination.assignedAt.toIso8601String(),
+      'receivedAt': DateTime.now().toIso8601String(),
+    });
     _logger.i('Destination stored and notification shown for ${destination.deliveryId}');
   }
 
@@ -54,7 +65,7 @@ class DestinationService {
     );
   }
 
-  Future<void> openInMaps(DeliveryDestination destination) async {
+  Future<bool> openInMaps(DeliveryDestination destination) async {
     _logger.i('Opening Maps for ${destination.latitude}, ${destination.longitude}');
     final label = destination.label ?? destination.deliveryName;
     final mapsUri = defaultTargetPlatform == TargetPlatform.android
@@ -73,8 +84,10 @@ class DestinationService {
       if (!launched) {
         _logger.w('Could not launch Maps URI: $mapsUri');
       }
+      return launched;
     } catch (e, st) {
       _logger.e('Failed to open Maps', error: e, stackTrace: st);
+      return false;
     }
   }
 

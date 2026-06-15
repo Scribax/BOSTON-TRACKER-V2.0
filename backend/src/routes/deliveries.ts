@@ -13,6 +13,7 @@ import {
   handleInactivityAlert,
   getDeliveryHistory,
   getMyActiveTrip,
+  getDeliveryDestinationTimeline,
 } from '@controllers/deliveries';
 import { authenticate, authorize, authorizeOwnership } from '@middleware/auth';
 
@@ -33,5 +34,6 @@ router.post('/:id/inactivity-alert', authenticate, authorizeOwnership, handleIna
 
 // History
 router.get('/:id/history', authenticate, authorizeOwnership, getDeliveryHistory);
+router.get('/:id/destination-timeline', authenticate, authorizeOwnership, getDeliveryDestinationTimeline);
 
 export default router;

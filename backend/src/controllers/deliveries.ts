@@ -26,6 +26,9 @@ import {
   isValidCoordinate,
 } from '@utils/geo';
 import { markDeliverySeen, getDeliveryLastSeen } from '@utils/connectionState';
+import {
+  getDeliveryDestinationHistory,
+} from '@utils/deliveryDestinationStore';
 
 /**
  * Helper to get Socket.IO instance from request
@@ -569,6 +572,35 @@ export const getDeliveryHistory = async (
     });
   } catch (error) {
     console.error('Get delivery history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
+
+// ==========================================
+// GET DELIVERY DESTINATION HISTORY
+// ==========================================
+
+export const getDeliveryDestinationTimeline = async (
+  req: AuthenticatedRequest,
+  res: Response<ApiResponse<{ destinations: unknown[]; total: number }>>
+): Promise<void> => {
+  try {
+    const { id: deliveryId } = req.params;
+    const destinations = getDeliveryDestinationHistory(deliveryId);
+
+    res.json({
+      success: true,
+      data: {
+        destinations,
+        total: destinations.length,
+      },
+    });
+  } catch (error) {
+    console.error('Get delivery destination timeline error:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor',

@@ -43,6 +43,8 @@ export interface DeliveryDestination {
   label?: string;
   assignedBy?: string;
   assignedAt: string;
+  receivedAt?: string;
+  acknowledgedAt?: string;
 }
 
 export interface TripMetrics {
@@ -63,4 +65,6 @@ export interface ActiveDelivery {
   isOnline?: boolean;
   location: LocationUpdate | null;
   metrics: TripMetrics | null;
+  lastDestination?: DeliveryDestination | null;
+  destinationHistory?: DeliveryDestination[];
 }

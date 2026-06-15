@@ -21,6 +21,10 @@ import tripRoutes from './routes/trips';
 import apkRoutes from './routes/apk';
 import { markDeliverySeen, setLastDeliveryDestination, getLastDeliveryDestination } from './utils/connectionState';
 import type { ApiResponse, AuthenticatedRequest, ServerToClientEvents, ClientToServerEvents, DeliveryDestinationPayload } from './types/index';
+import {
+  acknowledgeDeliveryDestination,
+  storeDeliveryDestination,
+} from './utils/deliveryDestinationStore';
 
 // Load environment variables
 dotenv.config();
@@ -228,12 +232,24 @@ io.on('connection', (socket) => {
         data,
       });
       const roomName = `delivery-${data.deliveryId}`;
-      setLastDeliveryDestination(data.deliveryId, data);
-      io.to(roomName).emit('deliveryDestination', data);
-      console.log(`📍 Destination sent to ${roomName}:`, data);
+      const stored = storeDeliveryDestination(data.deliveryId, data);
+      setLastDeliveryDestination(data.deliveryId, stored);
+      io.to(roomName).emit('deliveryDestination', stored);
+      console.log(`📍 Destination sent to ${roomName}:`, stored);
     } catch (error) {
       console.error('Error handling delivery destination:', error);
     }
+  });
+
+  socket.on('deliveryDestinationAck', (data: { deliveryId: string; assignedAt: string }) => {
+    if (!data?.deliveryId || !data?.assignedAt) return;
+    acknowledgeDeliveryDestination(data.deliveryId, data.assignedAt);
+    console.log(`✅ deliveryDestination acknowledged for ${data.deliveryId} at ${data.assignedAt}`);
+    io.to('admins').emit('deliveryDestinationAck', {
+      deliveryId: data.deliveryId,
+      assignedAt: data.assignedAt,
+      receivedAt: new Date().toISOString(),
+    });
   });
 
   socket.on('disconnect', (reason) => {

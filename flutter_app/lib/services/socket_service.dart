@@ -8,10 +8,15 @@ class SocketService {
   final _eventController = StreamController<Map<String, dynamic>>.broadcast();
   String? _lastUserId;
   String? _lastToken;
+  void Function(Map<String, dynamic>)? onDeliveryDestinationAck;
 
   Stream<Map<String, dynamic>> get events => _eventController.stream;
 
   bool get isConnected => _socket?.connected ?? false;
+
+  void emit(String event, [dynamic data]) {
+    _socket?.emit(event, data);
+  }
 
   void connect(String userId, String token) {
     _lastUserId = userId;
@@ -75,6 +80,11 @@ class SocketService {
     _socket!.on('deliveryDestination', (data) {
       _logger.i('Destination received: $data');
       _eventController.add({'type': 'deliveryDestination', 'data': data});
+    });
+
+    _socket!.on('deliveryDestinationAck', (data) {
+      _logger.i('Destination ACK received: $data');
+      _eventController.add({'type': 'deliveryDestinationAck', 'data': data});
     });
 
     _socket!.onAny((event, data) {

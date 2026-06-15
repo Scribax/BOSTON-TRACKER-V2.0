@@ -30,6 +30,7 @@ export default function TrackingPage() {
   const [search, setSearch] = useState('');
   const [centerRequest, setCenterRequest] = useState(0);
   const [menuPoint, setMenuPoint] = useState<{ latitude: number; longitude: number; x: number; y: number } | null>(null);
+  const [destinationTimeline, setDestinationTimeline] = useState<Record<string, DeliveryDestination[]>>({});
 
   const fetchActiveTrips = useCallback(async () => {
     try {
@@ -46,6 +47,8 @@ export default function TrackingPage() {
         isOnline: t.isOnline ?? null,
         location: t.lastLocation || null,
         metrics: t.metrics || null,
+        lastDestination: t.lastDestination || null,
+        destinationHistory: t.destinationHistory || [],
       }));
       setDeliveries((prev) => mapped.map((d) => {
         const existing = prev.find((p) => p.id === d.id);
@@ -59,9 +62,22 @@ export default function TrackingPage() {
     }
   }, []);
 
+  const fetchDestinationTimeline = useCallback(async (deliveryId: string) => {
+    try {
+      const res = await api.get(`/deliveries/${deliveryId}/destination-timeline`);
+      const destinations = res.data?.data?.destinations || [];
+      setDestinationTimeline((prev) => ({ ...prev, [deliveryId]: destinations }));
+    } catch (err) {
+      console.error('Error fetching destination timeline:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchActiveTrips();
     const interval = setInterval(fetchActiveTrips, 10000);
+    const timelineInterval = setInterval(() => {
+      if (selectedId) fetchDestinationTimeline(selectedId);
+    }, 15000);
 
     const socket = getSocket();
 
@@ -88,6 +104,11 @@ export default function TrackingPage() {
     socket.on('tripStopped', (data: any) => {
       setDeliveries((prev) => prev.filter((d) => d.id !== data.deliveryId));
       setSelectedId((prev) => (prev === data.deliveryId ? null : prev));
+      setDestinationTimeline((prev) => {
+        const next = { ...prev };
+        delete next[data.deliveryId];
+        return next;
+      });
     });
 
     socket.on('locationUpdate', (data: any) => {
@@ -122,6 +143,45 @@ export default function TrackingPage() {
 
     socket.on('deliveryDestination', (data: DeliveryDestination) => {
       console.log('deliveryDestination received', data);
+      setDeliveries((prev) =>
+        prev.map((d) =>
+          d.id === data.deliveryId
+            ? {
+                ...d,
+                lastDestination: data,
+                destinationHistory: [data, ...(d.destinationHistory || [])].slice(0, 20),
+              }
+            : d
+        )
+      );
+      setDestinationTimeline((prev) => ({
+        ...prev,
+        [data.deliveryId]: [data, ...(prev[data.deliveryId] || [])].slice(0, 20),
+      }));
+    });
+
+    socket.on('deliveryDestinationAck', (data: any) => {
+      setDeliveries((prev) =>
+        prev.map((d) =>
+          d.id === data.deliveryId && d.lastDestination?.assignedAt === data.assignedAt
+            ? {
+                ...d,
+                lastDestination: {
+                  ...d.lastDestination,
+                  acknowledgedAt: data.receivedAt,
+                } as DeliveryDestination,
+              }
+            : d
+        )
+      );
+      setDestinationTimeline((prev) => ({
+        ...prev,
+        [data.deliveryId]: (prev[data.deliveryId] || []).map((item) =>
+          item.assignedAt === data.assignedAt
+            ? { ...item, acknowledgedAt: data.receivedAt }
+            : item
+        ),
+      }));
     });
 
     const statusTimer = setInterval(() => {
@@ -140,19 +200,22 @@ export default function TrackingPage() {
 
     return () => {
       clearInterval(interval);
+      clearInterval(timelineInterval);
       clearInterval(statusTimer);
       socket.off('tripStarted');
       socket.off('tripStopped');
       socket.off('locationUpdate');
       socket.off('metricsUpdate');
       socket.off('deliveryDestination');
+      socket.off('deliveryDestinationAck');
     };
-  }, [fetchActiveTrips]);
+  }, [fetchActiveTrips, fetchDestinationTimeline, selectedId]);
 
   const sendDestination = async (deliveryId: string) => {
     if (!menuPoint) return;
     const delivery = deliveries.find((d) => d.id === deliveryId);
     if (!delivery) return;
+    const assignedAt = new Date().toISOString();
     console.log('[dashboard] sending destination', {
       deliveryId,
       deliveryName: delivery.name,
@@ -166,9 +229,27 @@ export default function TrackingPage() {
       latitude: menuPoint.latitude,
       longitude: menuPoint.longitude,
       label: `Destino para ${delivery.name}`,
-      assignedAt: new Date().toISOString(),
+      assignedAt,
     });
     console.log('[dashboard] destination emitted', deliveryId);
+    setDeliveries((prev) =>
+      prev.map((d) =>
+        d.id === deliveryId
+          ? {
+              ...d,
+              lastDestination: {
+                deliveryId,
+                deliveryName: delivery.name,
+                latitude: menuPoint.latitude,
+                longitude: menuPoint.longitude,
+                label: `Destino para ${delivery.name}`,
+                assignedAt,
+              },
+            }
+          : d
+      )
+    );
+    void fetchDestinationTimeline(deliveryId);
     setMenuPoint(null);
   };
 
@@ -267,6 +348,37 @@ export default function TrackingPage() {
                         onSelect={() => setSelectedId(delivery.id)}
                         onStop={() => handleStopTrip(delivery.id)}
                       />
+                      {delivery.id === selectedId && delivery.lastDestination && (
+                        <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+                          <div className="font-semibold mb-1">Último destino</div>
+                          <div>{delivery.lastDestination.label || delivery.lastDestination.deliveryName}</div>
+                          <div className="mt-1 text-blue-700">
+                            {delivery.lastDestination.latitude.toFixed(5)}, {delivery.lastDestination.longitude.toFixed(5)}
+                          </div>
+                          <div className="mt-1">
+                            Estado:{' '}
+                            {delivery.lastDestination.acknowledgedAt ? 'Recibido por delivery' : 'Pendiente de confirmación'}
+                          </div>
+                        </div>
+                      )}
+                      {delivery.id === selectedId && (destinationTimeline[delivery.id] || []).length > 0 && (
+                        <div className="mt-2 rounded-lg border border-gray-200 bg-white p-3">
+                          <div className="font-semibold text-sm text-gray-900 mb-2">Timeline de destinos</div>
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {(destinationTimeline[delivery.id] || []).map((item) => (
+                              <div key={`${item.deliveryId}-${item.assignedAt}`} className="text-xs p-2 rounded border border-gray-100">
+                                <div className="font-medium text-gray-800">{item.label || item.deliveryName}</div>
+                                <div className="text-gray-500">
+                                  {item.latitude.toFixed(5)}, {item.longitude.toFixed(5)}
+                                </div>
+                                <div className="text-gray-500">
+                                  {item.acknowledgedAt ? 'ACK recibido' : 'Sin ACK'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })

@@ -221,6 +221,7 @@ export interface ServerToClientEvents {
   tripCompleted: (data: TripCompletedEvent) => void;
   tripStopped: (data: TripStoppedEvent) => void;
   deliveryDestination: (data: DeliveryDestinationPayload) => void;
+  deliveryDestinationAck: (data: DeliveryDestinationAckPayload) => void;
   tripsUpdate: (data: TripDTO[]) => void;
   inactivityAlert: (data: any) => void;
   connection_error: (data: { error: string }) => void;
@@ -240,6 +241,7 @@ export interface ClientToServerEvents {
   'join-delivery': (userId: string) => void;
   'location-update': (data: LocationUpdatePayload) => void;
   'deliveryDestination': (data: DeliveryDestinationPayload) => void;
+  'deliveryDestinationAck': (data: DeliveryDestinationAckPayload) => void;
 }
 
 export interface LocationUpdateEvent {
@@ -265,6 +267,13 @@ export interface DeliveryDestinationPayload {
   label?: string;
   assignedBy?: string;
   assignedAt: string;
+}
+
+export interface DeliveryDestinationAckPayload {
+  deliveryId: string;
+  deliveryName?: string;
+  assignedAt: string;
+  receivedAt: string;
 }
 
 export interface TripEvent {

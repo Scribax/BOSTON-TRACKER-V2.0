@@ -1,7 +1,9 @@
 import 'dart:ui' show FontFeature;
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../bloc/auth/auth_bloc.dart';
 import '../config/theme.dart';
 import '../services/api_service.dart';
@@ -101,6 +103,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _locationService = LocationService(_apiService);
     _destinationService = DestinationService(_storageService);
     await _destinationService!.init();
+    _destinationService!.bindAckEmitter((payload) {
+      _socketService.emit('deliveryDestinationAck', payload);
+    });
 
     _unauthorizedSubscription = _apiService.onUnauthorized.listen((_) {
       _locationService?.stopTracking();
@@ -142,8 +147,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       } else if (event['type'] == 'deliveryDestination') {
         final data = event['data'];
         _destinationService?.handleIncomingPayload(Map<String, dynamic>.from(data));
+      } else if (event['type'] == 'deliveryDestinationAck') {
+        // Backend ACK handled by socket service; no extra UI needed here.
       }
     });
+  }
+
+  Future<void> _showMapsFallback(DeliveryDestination destination) async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.open_in_browser),
+              title: const Text('Abrir en navegador'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                final uri = Uri.parse(
+                  'https://www.google.com/maps/search/?api=1&query=${destination.latitude},${destination.longitude}',
+                );
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Copiar coordenadas'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await Clipboard.setData(
+                  ClipboardData(text: '${destination.latitude}, ${destination.longitude}'),
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Coordenadas copiadas')),
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _forceLogout(String reason) async {
@@ -487,7 +534,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     '${_lastDestination!.latitude.toStringAsFixed(5)}, ${_lastDestination!.longitude.toStringAsFixed(5)}',
                   ),
                   trailing: ElevatedButton(
-                    onPressed: () => _destinationService?.openInMaps(_lastDestination!),
+                    onPressed: () async {
+                      final opened = await _destinationService?.openInMaps(_lastDestination!) ?? false;
+                      if (!opened) {
+                        await _showMapsFallback(_lastDestination!);
+                      }
+                    },
                     child: const Text('Abrir'),
                   ),
                 ),

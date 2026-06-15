@@ -21,7 +21,7 @@ dependencies:
   go_router: ^12.1.1
   
   # Location & Maps
-  geolocator: ^11.1.0
+  geolocator: ^13.0.2
   # google_maps_flutter: ^2.5.0  # TODO: Re-add after build is stable
   
   # Socket.io
@@ -58,6 +58,12 @@ dependencies:
   # Icons
   cupertino_icons: ^1.0.2
   flutter_vector_icons: ^2.0.0
+
+dependency_overrides:
+  geolocator_android:
+    path: vendor/geolocator_android
+  package_info_plus:
+    path: vendor/package_info_plus
 
 dev_dependencies:
   flutter_test:

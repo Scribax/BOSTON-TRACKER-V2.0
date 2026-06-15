@@ -61,8 +61,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!_socketService.isConnected) {
       final user = await _storageService.getUser();
       if (user != null && user.token != null) {
-        _socketService.connect(user.id, user.token!);
         _setupSocketListeners();
+        _socketService.connect(user.id, user.token!);
       }
     }
     // Immediately check if trip was stopped while app was in background
@@ -106,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _destinationService!.bindAckEmitter((payload) {
       _socketService.emit('deliveryDestinationAck', payload);
     });
+    _setupSocketListeners();
 
     _unauthorizedSubscription = _apiService.onUnauthorized.listen((_) {
       _locationService?.stopTracking();
@@ -118,7 +119,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final user = await _storageService.getUser();
     if (user != null && user.token != null) {
       _socketService.connect(user.id, user.token!);
-      _setupSocketListeners();
     }
     _destinationSubscription = _destinationService?.destinations.listen((destination) {
       if (mounted) {

@@ -18,6 +18,17 @@ class SocketService {
     _socket?.emit(event, data);
   }
 
+  void _joinDeliveryRoom() {
+    final userId = _lastUserId;
+    if (userId == null || userId.isEmpty) {
+      _logger.w('Skipping join-delivery because userId is missing');
+      return;
+    }
+
+    _socket?.emit('join-delivery', userId);
+    _logger.i('Joined delivery room: delivery-$userId');
+  }
+
   void connect(String userId, String token) {
     _lastUserId = userId;
     _lastToken = token;
@@ -42,10 +53,7 @@ class SocketService {
 
     _socket!.onConnect((_) {
       _logger.i('Socket connected: ${_socket!.id}');
-      
-      // Join delivery room
-      _socket!.emit('join-delivery', userId);
-      _logger.i('Joined delivery room: delivery-$userId');
+      _joinDeliveryRoom();
     });
 
     _socket!.onDisconnect((reason) {
@@ -58,6 +66,7 @@ class SocketService {
 
     _socket!.onReconnect((attempt) {
       _logger.i('Socket reconnected after $attempt attempts');
+      _joinDeliveryRoom();
       _eventController.add({'type': 'networkRestored', 'data': {}});
     });
 

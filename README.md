@@ -1,347 +1,390 @@
-# 🚚 Boston Tracker
+# Boston Tracker
 
-Sistema de rastreo GPS en tiempo real para repartidores. Permite a un administrador monitorear la ubicación, velocidad y métricas de sus deliveries en vivo desde un dashboard web, mientras los repartidores usan una app Android.
+Sistema de rastreo GPS en tiempo real para deliveries. El administrador monitorea ubicaciones, métricas y estado de viajes desde un dashboard web, mientras el delivery usa una app Android en Flutter para iniciar viajes, enviar ubicación y recibir destinos asignados.
 
-> **Estado actual:** Producción en VPS `186.64.123.15`
-> **Repo:** `github.com/Scribax/BOSTON-TRACKER-V2.0` (branch `main`)
-> **Futuro:** Base preparada para migración a SaaS multitenant (DeliveryPlus)
-
----
-
-## 📁 Estructura del repositorio
-
-```
-BOSTON TRACKER/
-├── backend/          # API REST + Socket.IO (Node.js + TypeScript)
-├── dashboard/        # Panel admin web (Next.js 14)
-├── flutter_app/      # App Android para repartidores (Flutter/Dart)
-├── ecosystem.config.js  # Configuración PM2 para producción
-├── deploy.sh         # Script de deploy al VPS
-└── .gitignore
-```
+> Estado actual: producción en VPS `186.64.123.15`
+> Backend: `Node.js + TypeScript + Express + Socket.IO + PostgreSQL`
+> Dashboard: `Next.js 14`
+> Mobile: `Flutter`
 
 ---
 
-## 🏗️ Arquitectura del sistema
+## Arquitectura
 
-```
-┌─────────────────┐         HTTP/WebSocket          ┌─────────────────────┐
-│   Flutter App   │ ──────────────────────────────▶ │   Backend (:5000)   │
-│  (Android APK)  │ ◀────────────────────────────── │  Express + Socket.IO│
-└─────────────────┘                                  │  + PostgreSQL       │
-                                                     └────────┬────────────┘
-┌─────────────────┐         HTTP/WebSocket                    │
-│  Dashboard Web  │ ──────────────────────────────▶           │
-│  Next.js (:3000)│ ◀────────────────────────────── ──────────┘
-└─────────────────┘
+```text
+Flutter App  ── HTTP / Socket.IO ──>  Backend (:5000)  ── PostgreSQL
+Dashboard    ── HTTP / Socket.IO ──>  Backend (:5000)  ── PostgreSQL
 ```
 
-### Flujo completo de un viaje
+### Roles
 
-```
-1. Delivery abre la app → login con usuario/contraseña
-2. Delivery presiona "INICIAR VIAJE"
-   → POST /api/deliveries/:id/start
-   → Backend crea Trip con status: 'active'
-   → Backend emite socket 'tripStarted' al room 'admins'
-   → Dashboard agrega pin en el mapa
-
-3. App inicia GPS tracking (foreground service Android)
-   → Cada movimiento > 10m: POST /api/deliveries/:id/location
-   → Heartbeat cada 30s si está quieto: POST /api/deliveries/:id/location
-   → Cada 5s: POST /api/deliveries/:id/metrics
-   → Backend emite 'locationUpdate' y 'metricsUpdate' por socket a admins
-
-4. Dashboard recibe updates por Socket.IO O por polling HTTP cada 10s
-   → Mueve pin en mapa en tiempo real
-   → Actualiza métricas en sidebar
-
-5. Admin presiona "DETENER VIAJE" en dashboard
-   → POST /api/deliveries/:id/stop (solo admins)
-   → Backend calcula métricas finales, marca Trip como 'completed'
-   → Emite 'tripCompleted' a admins y 'tripStopped' al delivery
-   → App detecta el stop por socket o por polling HTTP cada 10s
-   → App muestra dialog y detiene el GPS
-
-6. Viaje aparece en /history del dashboard
-```
+- `admin`: gestiona usuarios, ve el mapa en vivo, detiene viajes y asigna destinos.
+- `delivery`: inicia su viaje, envía ubicación y recibe destinos o eventos de sesión.
 
 ---
 
-## 🔧 Stack tecnológico
+## Flujo actual del sistema
 
-### Backend (`/backend`)
-| Tecnología | Versión | Uso |
+### 1. Login y sesión
+
+- El login devuelve `token`, `refreshToken` y `user`.
+- El backend expone `POST /api/auth/refresh` para renovar la sesión.
+- En Flutter:
+  - `token` y `refreshToken` se guardan en `FlutterSecureStorage`.
+  - `user` se guarda en `SharedPreferences`.
+  - Si la app arranca con sesión guardada, intenta validar con `GET /api/auth/me`.
+  - Si falla, usa `refreshToken` para renovar la sesión.
+
+### 2. Inicio de viaje
+
+- El delivery inicia viaje desde la app.
+- La app llama `POST /api/deliveries/:id/start`.
+- El backend crea un `Trip` con estado `active`.
+- El dashboard recibe `tripStarted` por Socket.IO.
+
+### 3. Seguimiento GPS
+
+- La app Flutter usa `geolocator` para leer posiciones.
+- El tracking corre con configuración de foreground en Android para mantener GPS activo.
+- Cada ubicación válida se envía por:
+  - `POST /api/deliveries/:id/location`
+- Cada cierto intervalo también se envían métricas por:
+  - `POST /api/deliveries/:id/metrics`
+
+### 4. Mapa en vivo del dashboard
+
+- El dashboard consume `locationUpdate` y `metricsUpdate` por Socket.IO.
+- También mantiene reconexión automática y puede refrescar por HTTP.
+- Cuando un delivery queda inactivo o se desconecta, el backend usa `lastSeenAt` para estimar estado online/offline.
+
+### 5. Destinos asignados por el admin
+
+- El admin envía un destino por Socket.IO con `deliveryDestination`.
+- El backend:
+  - lo guarda en memoria por delivery,
+  - lo reenvía al room `delivery-<id>`,
+  - y si el delivery se reconecta o vuelve a hacer `join-delivery`, el backend puede reenviar la última destination.
+- La app Flutter:
+  - se une al room `delivery-<userId>` al conectar y reconectar,
+  - recibe `deliveryDestination`,
+  - guarda la última destination localmente,
+  - muestra notificación,
+  - responde con `deliveryDestinationAck`.
+
+### 6. Cierre de viaje o de sesión
+
+- Si el admin detiene el viaje:
+  - `POST /api/deliveries/:id/stop`
+  - el backend marca el viaje como `completed`
+  - emite `tripStopped` al delivery y a `admins`
+- Si el admin desactiva o elimina un usuario:
+  - el backend puede emitir `forceLogout`
+  - la app Flutter limpia storage y vuelve al login
+
+---
+
+## Stack tecnológico
+
+### Backend
+
+| Tecnología | Uso |
+|---|---|
+| Node.js | Runtime |
+| TypeScript | Lenguaje |
+| Express | API REST |
+| Socket.IO | Tiempo real |
+| Sequelize | ORM |
+| PostgreSQL | Base de datos |
+| JWT | Autenticación |
+| PM2 | Procesos en producción |
+
+### Dashboard
+
+| Tecnología | Uso |
+|---|---|
+| Next.js 14 | Frontend admin |
+| TypeScript | Lenguaje |
+| TailwindCSS | Estilos |
+| Leaflet | Mapas |
+| Socket.IO Client | Tiempo real |
+| js-cookie | Token del admin |
+
+### Flutter App
+
+| Tecnología | Uso |
+|---|---|
+| Flutter | App Android |
+| Dart | Lenguaje |
+| flutter_bloc | Estado |
+| geolocator | GPS |
+| socket_io_client | Socket.IO |
+| dio | HTTP client |
+| go_router | Navegación |
+| FlutterSecureStorage | Token seguro |
+| SharedPreferences | Usuario y datos locales |
+| logger | Logs |
+
+---
+
+## Backend
+
+### Estructura principal
+
+```text
+backend/src/
+├── controllers/
+├── middleware/
+├── models/
+├── routes/
+├── services/
+├── utils/
+├── types/
+└── server.ts
+```
+
+### Auth
+
+#### Rutas
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| POST | `/api/auth/login` | No | Login con `email` o `employeeId` + `password` |
+| POST | `/api/auth/refresh` | No | Renueva `token` usando `refreshToken` |
+| GET | `/api/auth/me` | JWT | Devuelve usuario autenticado |
+| POST | `/api/auth/logout` | JWT | Logout lógico del lado cliente |
+| GET | `/api/auth/users` | Admin | Lista usuarios |
+| POST | `/api/auth/users` | Admin | Crea usuario |
+| PUT | `/api/auth/users/:id` | Admin | Edita usuario |
+| DELETE | `/api/auth/users/:id` | Admin | Elimina usuario y fuerza logout |
+
+### Deliveries
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/api/deliveries` | Admin | Lista deliveries activos |
+| GET | `/api/deliveries/my-trip` | Delivery | Viaje activo del usuario autenticado |
+| POST | `/api/deliveries/:id/start` | Dueño o admin | Inicia viaje |
+| POST | `/api/deliveries/:id/stop` | Admin | Detiene viaje |
+| POST | `/api/deliveries/:id/location` | Dueño o admin | Guarda ubicación |
+| POST | `/api/deliveries/:id/metrics` | Dueño o admin | Guarda métricas |
+| POST | `/api/deliveries/:id/inactivity-alert` | Dueño o admin | Alerta de inactividad |
+| GET | `/api/deliveries/:id/history` | Dueño o admin | Historial de viajes |
+| GET | `/api/deliveries/:id/destination-timeline` | Dueño o admin | Timeline de destinos |
+
+### Trips
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/api/trips/history` | Admin | Historial paginado |
+| GET | `/api/trips/details/:id` | Admin | Detalle completo de viaje |
+| DELETE | `/api/trips/:id` | Admin | Elimina un viaje |
+
+---
+
+## Socket.IO
+
+### Servidor -> Cliente
+
+| Evento | Destino | Descripción |
 |---|---|---|
-| Node.js | 18+ | Runtime |
-| TypeScript | 5.x | Lenguaje |
-| Express | 4.x | API REST |
-| Socket.IO | 4.x | Tiempo real |
-| Sequelize | 6.x | ORM |
-| PostgreSQL | 14+ | Base de datos |
-| JWT | — | Autenticación |
-| PM2 | — | Process manager |
+| `tripStarted` | `admins` | Nuevo viaje iniciado |
+| `tripStopped` | `admins` y `delivery-<id>` | Viaje detenido |
+| `tripCompleted` | `admins` | Viaje finalizado |
+| `locationUpdate` | `admins` | Ubicación en vivo |
+| `metricsUpdate` | `admins` | Métricas en vivo |
+| `deliveryDestination` | `delivery-<id>` | Destino asignado por admin |
+| `deliveryDestinationAck` | `admins` | Confirmación de recepción del destino |
+| `forceLogout` | `delivery-<id>` | Cierre forzado por admin |
 
-**Path aliases configurados en `tsconfig.json`:**
-- `@config` → `src/config`
-- `@controllers` → `src/controllers`
-- `@models` → `src/models`
-- `@middleware` → `src/middleware`
-- `@utils` → `src/utils`
+### Cliente -> Servidor
 
-### Dashboard (`/dashboard`)
-| Tecnología | Versión | Uso |
-|---|---|---|
-| Next.js | 14 | Framework React |
-| TypeScript | 5.x | Lenguaje |
-| TailwindCSS | 3.x | Estilos |
-| Leaflet | — | Mapa interactivo |
-| Socket.IO Client | 4.x | Tiempo real |
-| Axios | — | HTTP client |
-| js-cookie | — | Gestión de token JWT |
-| Lucide React | — | Iconos |
-
-### Flutter App (`/flutter_app`)
-| Tecnología | Versión | Uso |
-|---|---|---|
-| Flutter | 3.x | Framework |
-| Dart | 3.x | Lenguaje |
-| flutter_bloc | — | State management |
-| geolocator | — | GPS |
-| flutter_foreground_task | — | Foreground service Android |
-| socket_io_client | — | Socket.IO |
-| dio | — | HTTP client |
-| go_router | — | Navegación |
-| shared_preferences | — | Storage local |
-| logger | — | Logs |
+| Evento | Descripción |
+|---|---|
+| `join-admin` | El dashboard se une al room `admins` |
+| `join-delivery` | La app delivery se une al room `delivery-<userId>` |
+| `deliveryDestination` | El dashboard asigna un destino |
+| `deliveryDestinationAck` | La app confirma recepción del destino |
 
 ---
 
-## 🗄️ Modelos de base de datos
+## Flutter App
+
+### Estructura principal
+
+```text
+flutter_app/lib/
+├── bloc/auth/
+├── config/
+├── models/
+├── screens/
+├── services/
+└── main.dart
+```
+
+### Flujo de la app
+
+- `main.dart`
+  - inicializa permisos
+  - inicializa storage
+  - carga auth restaurada
+  - arranca router y services
+- `AuthBloc`
+  - maneja login, logout y arranque con sesión persistida
+  - si hay token guardado, intenta validar y luego refrescar si hace falta
+- `HomeScreen`
+  - carga viaje activo
+  - conecta socket
+  - arranca tracking GPS
+  - escucha `tripStopped`, `forceLogout`, `deliveryDestination`
+- `SocketService`
+  - conecta a Socket.IO
+  - se re-une al room delivery al conectar y reconectar
+  - expone eventos a la UI
+- `DestinationService`
+  - persiste la última destination
+  - muestra notificación
+  - envía ACK al backend
+- `LocationService`
+  - lee GPS
+  - filtra posiciones inválidas
+  - envía ubicación y métricas al backend
+
+### Detalles importantes del tracking
+
+- Filtra ubicaciones con accuracy muy mala.
+- Evita enviar puntos con desplazamiento insignificante.
+- Evita velocidades imposibles.
+- Envía ubicación por HTTP con throttling.
+- Envía métricas periódicas además de las métricas derivadas del movimiento.
+
+---
+
+## Dashboard
+
+### Estructura principal
+
+```text
+dashboard/src/
+├── app/
+├── components/
+├── lib/
+└── ...
+```
+
+### Funcionalidades
+
+- Login de admin.
+- Vista en vivo del tracking.
+- Cards de deliveries activos.
+- Historial y detalle de viajes.
+- Mapa de ruta histórica.
+- Gestión de usuarios.
+- Descarga de APK.
+
+### Socket del dashboard
+
+- Usa cookie `token`.
+- Conecta al backend por Socket.IO.
+- Emite `join-admin` al conectar.
+- Escucha `locationUpdate`, `tripStarted`, `tripStopped`, `tripCompleted`, `metricsUpdate`, `forceLogout`.
+
+---
+
+## Modelos principales
 
 ### User
+
 ```typescript
 {
-  id: UUID (PK),
+  id: string,
   name: string,
-  email: string (unique, nullable),
-  employeeId: string (unique),  // Ej: "DEL001"
-  password: string (hashed bcrypt),
+  email?: string,
+  employeeId?: string,
+  password: string,
   role: 'admin' | 'delivery',
-  phone: string (nullable),
-  isActive: boolean (default: true),
-  lastLogin: Date (nullable),
-  createdAt: Date,
-  updatedAt: Date,
+  phone?: string,
+  isActive: boolean,
+  lastLogin?: Date
 }
 ```
 
 ### Trip
+
 ```typescript
 {
-  id: UUID (PK),
-  deliveryId: UUID (FK → User),
-  status: 'active' | 'completed',
+  id: string,
+  deliveryId: string,
+  status: 'active' | 'completed' | 'paused',
   startTime: Date,
-  endTime: Date (nullable),
-  mileage: float (km, default: 0),
-  duration: integer (segundos, default: 0),
-  averageSpeed: float (km/h, default: 0),
-  createdAt: Date,
-  updatedAt: Date,
-  // Métodos del modelo:
-  getDuration(): number       // segundos desde startTime
-  getAverageSpeed(): number   // calculado desde locations
-  getRealTimeMetrics(): object
+  endTime?: Date,
+  mileage: number,
+  duration: number,
+  averageSpeed: number,
+  realTimeMetrics: object
 }
 ```
 
 ### Location
+
 ```typescript
 {
-  id: UUID (PK),
-  tripId: UUID (FK → Trip),
-  latitude: float,
-  longitude: float,
-  accuracy: float (metros),
-  speed: float (km/h),
-  heading: float (grados),
-  timestamp: Date,
-  createdAt: Date,
+  id: string,
+  tripId: string,
+  latitude: number,
+  longitude: number,
+  accuracy?: number,
+  speed?: number,
+  heading?: number,
+  timestamp: Date
 }
 ```
 
-**Asociaciones:**
-- `User hasMany Trip` (as: 'trips')
-- `Trip belongsTo User` (as: 'delivery')
-- `Trip hasMany Location` (as: 'tripLocations')
-- `Location belongsTo Trip`
-
 ---
 
-## 🌐 API REST endpoints
-
-### Auth (`/api/auth`)
-| Método | Ruta | Auth | Descripción |
-|---|---|---|---|
-| POST | `/login` | No | Login, devuelve JWT |
-| GET | `/me` | JWT | Perfil del usuario autenticado |
-| GET | `/users` | Admin | Listar todos los usuarios |
-| POST | `/users` | Admin | Crear usuario |
-| PUT | `/users/:id` | Admin | Editar usuario |
-| DELETE | `/users/:id` | Admin | Eliminar usuario (fuerza logout en app) |
-
-### Deliveries (`/api/deliveries`)
-| Método | Ruta | Auth | Descripción |
-|---|---|---|---|
-| GET | `/` | Admin | Listar deliveries activos con última ubicación |
-| GET | `/my-trip` | Delivery | Viaje activo del delivery autenticado |
-| POST | `/:id/start` | Delivery/Admin | Iniciar viaje |
-| POST | `/:id/stop` | **Admin only** | Detener viaje |
-| POST | `/:id/location` | Delivery/Admin | Actualizar ubicación GPS |
-| POST | `/:id/metrics` | Delivery/Admin | Actualizar métricas |
-| GET | `/:id/history` | Delivery/Admin | Historial de viajes del delivery |
-
-### Trips (`/api/trips`)
-| Método | Ruta | Auth | Descripción |
-|---|---|---|---|
-| GET | `/history` | Admin | Historial paginado de viajes completados |
-| GET | `/details/:id` | Admin | Detalle de viaje + todas las locations |
-| DELETE | `/:id` | Admin | Eliminar viaje |
-
----
-
-## 🔌 Socket.IO eventos
-
-### Servidor → Cliente
-
-| Evento | Room destino | Payload | Descripción |
-|---|---|---|---|
-| `tripStarted` | `admins` | `{deliveryId, deliveryName, tripId, startTime}` | Nuevo viaje iniciado |
-| `tripStopped` | `admins` | `{deliveryId, tripId}` | Viaje detenido |
-| `tripCompleted` | `admins` | `{deliveryId, tripId, metrics}` | Viaje completado con métricas |
-| `locationUpdate` | `admins` | `{deliveryId, latitude, longitude, speed, heading, accuracy}` | Update de posición |
-| `metricsUpdate` | `admins` | `{deliveryId, currentSpeed, averageSpeed, maxSpeed, totalDistance, totalTime}` | Update de métricas |
-| `tripStopped` | `delivery-{id}` | `{tripId, metrics}` | Admin detuvo el viaje (para la app) |
-| `forceLogout` | `delivery-{id}` | `{reason}` | Admin borró/desactivó el usuario |
-
-### Cliente → Servidor
-
-| Evento | Descripción |
-|---|---|
-| `join-admin` | Dashboard se une al room `admins` (requiere token JWT admin) |
-| `join-delivery` | App se une al room `delivery-{userId}` |
-
----
-
-## 📱 App Flutter — estructura
-
-```
-flutter_app/lib/
-├── main.dart                    # Entry point, inicializa ForegroundService
-├── bloc/auth/                   # AuthBloc — estado de autenticación
-├── config/
-│   ├── router.dart              # go_router — rutas de la app
-│   └── theme.dart               # Colores y estilos (AppTheme)
-├── models/
-│   ├── user.dart                # Modelo User
-│   └── trip.dart                # Modelo Trip
-├── screens/
-│   ├── login_screen.dart        # Pantalla de login
-│   ├── home_screen.dart         # Pantalla principal (viaje activo)
-│   └── splash_screen.dart       # Splash inicial
-├── services/
-│   ├── api_service.dart         # HTTP client (Dio) — base: http://186.64.123.15:5000/api
-│   ├── socket_service.dart      # Socket.IO client
-│   ├── location_service.dart    # GPS tracking + heartbeat + offline queue
-│   ├── storage_service.dart     # SharedPreferences — token y user
-│   └── foreground_service.dart  # Flutter Foreground Task (Android)
-└── widgets/
-    └── metric_card.dart         # Widget de métricas
-```
-
-### Lógica clave en `home_screen.dart`
-
-- **`_startTrip()`** — llama API, inicia tracking y reloj
-- **`_startLocationTracking()`** — arranca `LocationService` + polling + reloj
-- **`_startClock()`** — Timer cada 1s actualizando `_elapsedSeconds`
-- **`_startTripPolling()`** — Timer cada 10s verificando si el viaje sigue activo. Tiene **grace period de 30s** al inicio para evitar falsos positivos
-- **`_showTripStoppedDialog()`** — Dialog cuando el admin detiene el viaje
-- **Socket listeners** — `tripStopped`, `forceLogout`
-
-### Lógica clave en `location_service.dart`
-
-- **`startTracking()`** — pide permisos GPS, inicia heartbeat timer (30s), arranca stream de posiciones
-- **`_onPositionUpdate()`** — filtra accuracy > 100m, filtra movimientos < 5m (excepto primera posición), filtra velocidades imposibles > 120 km/h
-- **Heartbeat timer** — envía última posición conocida cada 30s si el delivery está quieto (guarda `_lastSentTime` para no duplicar si ya mandó por movimiento)
-- **Offline queue** — si falla el envío HTTP, guarda en `_pendingQueue` (máx 500 items) y reenvía automáticamente al recuperar conexión
-- **`stopTracking()`** — cancela stream, heartbeat timer, limpia cola
-
----
-
-## 🖥️ Dashboard — estructura
-
-```
-dashboard/src/
-├── app/
-│   ├── page.tsx                 # Tracking en vivo (mapa + sidebar)
-│   ├── history/page.tsx         # Historial de viajes con filtros
-│   ├── users/page.tsx           # Gestión de usuarios (CRUD)
-│   ├── apk/page.tsx             # Descarga de APK
-│   └── login/page.tsx           # Login admin
-├── components/
-│   ├── Map.tsx                  # Mapa Leaflet con pins de deliveries
-│   ├── TripRouteMap.tsx         # Mapa con polyline de ruta de viaje histórico
-│   ├── ActiveDeliveryCard.tsx   # Card de delivery activo en sidebar
-│   └── DashboardLayout.tsx      # Layout con sidebar de navegación
-└── lib/
-    ├── api.ts                   # Axios instance con baseURL y JWT interceptor
-    ├── socket.ts                # Socket.IO singleton con reconexión automática
-    └── types.ts                 # Interfaces TypeScript (User, Trip, ActiveDelivery...)
-```
-
-### Funcionalidades del dashboard
-
-- **Tracking en vivo** — mapa con pins actualizados por socket + polling HTTP cada 10s
-- **Historial de viajes** — filtros por nombre/ID de delivery y rango de fechas, botón para ver ruta en mapa
-- **Ver ruta histórica** — modal con mapa Leaflet, polyline roja, marcador verde (inicio) y rojo (fin)
-- **Gestión de usuarios** — crear/editar/desactivar/eliminar deliveries
-- **Eliminar usuario** — detiene viaje activo automáticamente y fuerza logout en la app
-- **Descarga APK** — página para distribuir la app
-
----
-
-## 🚀 Deploy en producción
+## Deploy
 
 ### Infraestructura
-- **VPS:** `186.64.123.15` (Linux)
-- **Backend:** Puerto `5000`, gestionado por PM2
-- **Dashboard:** Puerto `3000`, gestionado por PM2
-- **Nginx:** Reverse proxy, sirve ambos en puerto 80
 
-### PM2 (ecosystem.config.js)
+- VPS: `186.64.123.15`
+- Backend: puerto `5000`
+- Dashboard: puerto `3000`
+- Reverse proxy: Nginx
+- Process manager: PM2
+
+### Producción
+
 ```bash
-pm2 start ecosystem.config.js    # Iniciar todo
-pm2 status                        # Ver estado
-pm2 logs boston-backend           # Logs del backend
-pm2 restart boston-backend        # Reiniciar backend
-pm2 restart boston-dashboard      # Reiniciar dashboard
+pm2 start ecosystem.config.js
+pm2 status
+pm2 logs boston-backend
+pm2 logs boston-dashboard
+pm2 restart boston-backend
+pm2 restart boston-dashboard
 ```
 
-### Deploy de actualizaciones
+### Actualización en VPS
+
 ```bash
-# En el VPS
 cd /var/www/boston-tracker
-
-# Backend
 git pull
-cd backend && npm run build && pm2 restart boston-backend
 
-# Dashboard
-cd ../dashboard && npm run build && pm2 restart boston-dashboard
+cd backend
+npm install
+npm run build
+pm2 restart boston-backend
+
+cd ../dashboard
+npm install
+npm run build
+pm2 restart boston-dashboard
 ```
 
-### Variables de entorno backend (`backend/.env`)
+---
+
+## Variables de entorno
+
+### Backend
+
 ```env
 NODE_ENV=production
 PORT=5000
@@ -352,150 +395,101 @@ DB_USER=postgres
 DB_PASS=<password>
 JWT_SECRET=<secret>
 JWT_EXPIRE=7d
-```
-
----
-
-## 🔐 Sistema de autenticación
-
-- **JWT** almacenado en cookie (`token`) en el dashboard
-- **JWT** almacenado en `SharedPreferences` en la app Flutter
-- **Roles:** `admin` y `delivery`
-- **Middleware `authenticate`** — verifica JWT en header `Authorization: Bearer <token>`
-- **Middleware `authorize(role)`** — verifica que el usuario tenga el rol requerido
-- **Middleware `authorizeOwnership`** — delivery solo puede operar sobre su propio ID
-
-### Flujo de eliminación de usuario
-```
-Admin elimina usuario desde dashboard
-  → Backend busca viaje activo del usuario
-  → Si existe: lo marca como 'completed', calcula métricas finales
-  → Emite socket 'forceLogout' al room 'delivery-{userId}'
-  → App Flutter recibe 'forceLogout'
-  → App para GPS, limpia storage, navega a login con mensaje
-```
-
----
-
-## 🐛 Bugs conocidos resueltos
-
-| Bug | Causa | Fix |
-|---|---|---|
-| Pin no aparecía al iniciar viaje | Primera posición GPS descartada por filtro de distancia | Bypass del filtro en `isFirstPosition` |
-| Viaje se detenía solo a los 10s | Polling sin grace period veía `null` antes de que el viaje se guardara en DB | Grace period de 30s en `_startTripPolling()` |
-| `maxSpeed` siempre 0 en historial | Hardcodeado en `trips.ts` | Consulta `Location.findOne` ordenada por speed DESC |
-| Socket no reconectaba tras relogin | Singleton no destruido al desconectarse | `socket.disconnect(); socket = null` antes de crear nuevo |
-| Mileage se recalculaba en cada update | Iteraba todas las locations en DB | Solo incrementa con delta desde última location |
-
----
-
-## 📋 Estado actual del proyecto (Mayo 2026)
-
-### ✅ Funcionando
-- Login admin en dashboard y delivery en app
-- Inicio/detención de viajes (solo admin puede detener)
-- GPS tracking en tiempo real con foreground service
-- Heartbeat cada 30s para deliveries quietos
-- Offline queue — guarda hasta 500 ubicaciones si no hay internet
-- Mapa en vivo con pins actualizados por socket + polling
-- Historial de viajes con filtros por fecha y delivery
-- Ver ruta completa de viajes históricos en mapa
-- Reloj en tiempo real en la app mostrando tiempo transcurrido
-- Gestión de usuarios (CRUD) desde dashboard
-- Forzar logout y detener viaje al eliminar/desactivar usuario
-- Protección: delivery no puede cerrar sesión durante viaje activo
-
-### 🔄 Pendiente / Próximas mejoras
-- Migración a arquitectura SaaS multitenant
-- Panel super-admin para gestionar múltiples tenants
-- Subdominios dinámicos por tenant (`cliente.deliveryplus.com`)
-- White-label del dashboard (logo/colores configurables por tenant)
-- Onboarding de delivery por QR en lugar de URL hardcodeada
-- Landing page con registro self-service
-- Sistema de facturación por uso
-
----
-
-## 🗺️ Roadmap SaaS (DeliveryPlus)
-
-El sistema está diseñado para escalar a una plataforma multi-tenant donde múltiples restaurantes/empresas usen la misma infraestructura con sus propios subdominios.
-
-```
-Fase 1: Multitenant en DB
-  → Agregar tenantId a Users, Trips, Locations
-  → Middleware que filtra por tenantId automáticamente
-  → Seed de tenant Boston como primero
-
-Fase 2: Super-admin panel (app.deliveryplus.com)
-  → CRUD de tenants
-  → Métricas globales por tenant
-  → Habilitar/suspender tenants
-
-Fase 3: Subdominios dinámicos
-  → Nginx con wildcard *.deliveryplus.com
-  → Middleware detecta subdominio → resuelve tenantId
-  → Dashboard se auto-configura según el tenant
-
-Fase 4: White-label
-  → Logo, colores, nombre configurables por tenant
-  → Dashboard usa config del tenant del token
-
-Fase 5: Flutter configurable
-  → App escanea QR al instalar → configura URL y tenantId
-  → O app universal que pide empresa al login
-
-Fase 6: Billing
-  → Plan por cantidad de deliveries activos
-  → Integración Stripe/MercadoPago
-```
-
----
-
-## 👨‍💻 Desarrollo local
-
-### Backend
-```bash
-cd backend
-npm install
-cp .env.example .env  # Configurar variables
-npm run dev           # ts-node-dev con hot reload
+JWT_REFRESH_EXPIRE=30d
 ```
 
 ### Dashboard
-```bash
-cd dashboard
-npm install
-npm run dev           # Next.js dev server en :3000
+
+```env
+NEXT_PUBLIC_SOCKET_URL=http://186.64.123.15:5000
 ```
 
-### Flutter App
-```bash
-cd flutter_app
-flutter pub get
-flutter run -d <device-id>   # Correr en dispositivo físico
-# Para build APK:
-flutter build apk --release
-```
+### Flutter
 
-### Dispositivo de prueba
-- **TECNO LI7** — Android ARM64
-- Device ID: `11459254AB102563`
-- Comando: `flutter run -d 11459254AB102563`
+- `flutter_app/lib/services/api_service.dart` tiene la URL base del backend hardcodeada.
+- Si cambiás entorno, tenés que actualizar esa URL.
 
 ---
 
-## 📝 Notas importantes para IAs / colaboradores
+## Bugs ya resueltos
 
-1. **El dashboard tiene su propio `.git`** sin remote configurado — commits del dashboard son locales. El repo raíz en GitHub es el que contiene todo.
+| Bug | Causa | Fix |
+|---|---|---|
+| El pin no aparecía al iniciar viaje | La primera posición quedaba filtrada | Se permitió la primera ubicación válida |
+| El viaje se detenía solo demasiado pronto | Polling sin margen al arrancar | Grace period de arranque |
+| `maxSpeed` quedaba en 0 | Cálculo incompleto en historial | Se ajustó la lógica de métricas |
+| El socket no seguía después de restaurar sesión | El usuario recuperado perdía el `token` | Se reinyecta token en auth restaurada |
+| El delivery no recibía destinos al reabrir la app | No se re-hacía `join-delivery` correctamente | Se rejoin al conectar y reconectar |
 
-2. **La URL del backend está hardcodeada** en `flutter_app/lib/services/api_service.dart` como `http://186.64.123.15:5000/api`. Para cambiar el entorno hay que modificar ese archivo.
+---
 
-3. **El socket en el backend es no-fatal** — permite conexiones sin token válido para el dashboard; la autorización se hace en el evento `join-admin`.
+## Estado actual
 
-4. **`authorizeOwnership` en deliveries** — verifica que `req.params.id === req.user.id` para que un delivery no pueda operar sobre otro. Los admins pasan siempre.
+### Funcionando
 
-5. **El build del backend** genera `dist/` que es lo que PM2 ejecuta. Siempre correr `npm run build` antes de reiniciar PM2.
+- Login admin y delivery
+- Refresh de sesión en Flutter
+- Inicio y detención de viajes
+- GPS tracking en Android
+- Envío de ubicación y métricas
+- Dashboard con mapa en vivo
+- Asignación de destinos por socket
+- Persistencia local de la última destination
+- Force logout por eliminación o desactivación
+- Historial de viajes
+- Gestión de usuarios
 
-6. **Warnings CRLF en git** son normales en Windows — no afectan el funcionamiento.
+### Pendiente
 
-7. **`totalLocations: 0`** en viajes recién creados es correcto — se incrementa con cada `updateLocation`.
+- Multitenancy real
+- White-label por tenant
+- Onboarding por QR
+- Billing
+- Super-admin panel
+
+---
+
+## Desarrollo local
+
+### Backend
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+### Dashboard
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+### Flutter
+
+```bash
+cd flutter_app
+flutter pub get
+flutter run -d <device-id>
+```
+
+### Build APK
+
+```bash
+cd flutter_app
+flutter build apk --release
+```
+
+---
+
+## Notas para colaboradores
+
+1. El backend usa JWT en `Authorization: Bearer <token>`.
+2. La app Flutter guarda el `token` en almacenamiento seguro, no en `SharedPreferences`.
+3. El delivery socket depende de `join-delivery` con el `userId` correcto.
+4. El dashboard usa `join-admin` después de conectarse.
+5. El backend puede reenviar la última `deliveryDestination` al reconectar.
+6. El build del backend debe compilarse antes de reiniciar PM2.
+

@@ -5,10 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:logger/logger.dart';
 import 'api_service.dart';
 
-/// LocationService — handles GPS tracking and backend communication directly.
-/// Uses Geolocator's foregroundNotificationConfig so its own Android foreground
-/// service keeps GPS alive when the phone is locked, without relying on
-/// flutter_foreground_task (which fails with ServiceTimeoutException on some devices).
+/// LocationService handles GPS tracking and backend communication directly.
+/// Geolocator's foregroundNotificationConfig keeps GPS alive when the phone is locked.
 class LocationService {
   final ApiService _apiService;
   final Logger _logger = Logger();
@@ -85,12 +83,17 @@ class LocationService {
 
   void _startGpsStream({String? deliveryName}) {
     _positionStream?.cancel();
-    // The persistent foreground notification is handled by ForegroundService.
-    // Geolocator only keeps the GPS stream alive here.
     final settings = AndroidSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 8,
       intervalDuration: const Duration(seconds: 5),
+      foregroundNotificationConfig: ForegroundNotificationConfig(
+        notificationTitle: 'Boston Tracker — En Ruta',
+        notificationText: deliveryName != null
+            ? 'Rastreando a $deliveryName'
+            : 'GPS activo en segundo plano',
+        enableWifiLock: true,
+      ),
     );
     _positionStream = Geolocator.getPositionStream(locationSettings: settings)
         .listen(_onPosition, onError: (e) {

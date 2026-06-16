@@ -10,7 +10,6 @@ import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/location_service.dart';
-import '../services/foreground_service.dart';
 import '../services/destination_service.dart';
 import '../models/trip.dart';
 import '../models/user.dart';
@@ -76,7 +75,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final response = await _apiService.getActiveTrip();
       if (response.success && response.data == null && _activeTrip != null) {
         _locationService?.stopTracking();
-        await ForegroundService.stopService();
         _tripPollingTimer?.cancel();
         _clockTimer?.cancel();
         final trip = _activeTrip;
@@ -92,10 +90,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       } else if (response.success && response.data != null) {
         if (mounted) setState(() => _activeTrip = response.data);
-        final user = await _storageService.getUser();
-        if (_activeTrip != null && user != null && user.name.isNotEmpty) {
-          await _ensureForegroundTracking(userName: user.name);
-        }
       }
     } catch (_) {}
   }
@@ -140,7 +134,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (event['type'] == 'tripStopped') {
         final data = event['data'];
         _locationService?.stopTracking();
-        await ForegroundService.stopService();
         _tripPollingTimer?.cancel();
         _showTripStoppedDialog(data);
       } else if (event['type'] == 'forceLogout') {
@@ -199,7 +192,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _forceLogout(String reason) async {
     _locationService?.stopTracking();
-    await ForegroundService.stopService();
     _tripPollingTimer?.cancel();
     if (!mounted) return;
     setState(() {
@@ -279,7 +271,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // If has active trip, resume tracking
         if (_activeTrip != null && _activeTrip!.isActive) {
           final user = await _storageService.getUser();
-          await _ensureForegroundTracking(userName: user?.name);
           _startLocationTracking(deliveryName: user?.name);
         }
       } else {
@@ -304,7 +295,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _error = null;
         });
         final user = await _storageService.getUser();
-        await _ensureForegroundTracking(userName: user?.name);
         _startLocationTracking(deliveryName: user?.name);
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -348,7 +338,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() => _isLoading = true);
 
     _locationService?.stopTracking();
-    await ForegroundService.stopService();
 
     try {
       final response = await _apiService.stopTrip();
@@ -394,27 +383,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _startClock();
   }
 
-  Future<void> _ensureForegroundTracking({String? userName}) async {
-    final user = await _storageService.getUser();
-    final tripId = _activeTrip?.id;
-    if (user == null || tripId == null || user.token == null) return;
-
-    await ForegroundService.saveCredentials(
-      userId: user.id,
-      token: user.token!,
-      baseUrl: ApiService.baseUrl,
-      deliveryName: userName ?? user.name,
-    );
-
-    final started = await ForegroundService.startService(
-      deliveryName: userName ?? user.name,
-      tripId: tripId,
-    );
-    if (started) {
-      ForegroundService.sendCommand('updateMetadata');
-    }
-  }
-
   void _startClock() {
     _clockTimer?.cancel();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -452,7 +420,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // Only stop if the trip that disappeared is the one we started
           if (_activeTrip?.id != trackedTripId) return;
           _locationService?.stopTracking();
-          await ForegroundService.stopService();
           _tripPollingTimer?.cancel();
           if (mounted) {
             final trip = _activeTrip;
@@ -472,7 +439,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _logout() async {
     _locationService?.stopTracking();
-    await ForegroundService.stopService();
     _socketService.disconnect();
     context.read<AuthBloc>().add(LogoutRequested());
   }

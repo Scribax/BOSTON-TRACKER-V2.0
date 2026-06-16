@@ -1,20 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'config/routes.dart';
 import 'config/theme.dart';
 import 'bloc/auth/auth_bloc.dart';
 import 'services/api_service.dart';
 import 'services/storage_service.dart';
-import 'services/foreground_service.dart';
 import 'services/destination_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize foreground task (must be before runApp)
-  ForegroundService.init();
 
   // Location permissions — required before GPS stream can open
   if (await Permission.locationWhenInUse.isDenied) {
@@ -29,8 +24,6 @@ void main() async {
   if (await Permission.notification.isDenied) {
     await Permission.notification.request();
   }
-  await FlutterForegroundTask.requestNotificationPermission();
-  await FlutterForegroundTask.requestIgnoreBatteryOptimization();
   
   // Initialize services
   final storageService = StorageService();
@@ -83,14 +76,12 @@ class _BostonTrackerAppState extends State<BostonTrackerApp> {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => _authBloc,
-      child: WithForegroundTask(
-        child: MaterialApp.router(
-          title: 'Boston Tracker',
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
-          routerConfig: AppRouter.createRouter(_authBloc),
-        ),
+      child: MaterialApp.router(
+        title: 'Boston Tracker',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        routerConfig: AppRouter.createRouter(_authBloc),
       ),
     );
   }

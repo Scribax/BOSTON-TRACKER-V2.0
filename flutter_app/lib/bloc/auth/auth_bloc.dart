@@ -80,13 +80,23 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         final response = await _apiService.getMe();
         
         if (response.success && response.data != null) {
-          await _storageService.saveUser(response.data!);
-          emit(AuthAuthenticated(response.data!));
+          final refreshedUser = response.data!.copyWith(
+            token: token,
+            refreshToken: await _storageService.getRefreshToken(),
+          );
+          await _storageService.saveUser(refreshedUser);
+          emit(AuthAuthenticated(refreshedUser));
         } else if (await _apiService.refreshSession()) {
           final refreshed = await _apiService.getMe();
           if (refreshed.success && refreshed.data != null) {
-            await _storageService.saveUser(refreshed.data!);
-            emit(AuthAuthenticated(refreshed.data!));
+            final storedToken = await _storageService.getToken();
+            final storedRefreshToken = await _storageService.getRefreshToken();
+            final refreshedUser = refreshed.data!.copyWith(
+              token: storedToken,
+              refreshToken: storedRefreshToken,
+            );
+            await _storageService.saveUser(refreshedUser);
+            emit(AuthAuthenticated(refreshedUser));
           } else {
             await _storageService.clearAll();
             emit(const AuthUnauthenticated());

@@ -33,6 +33,7 @@ class SocketService {
     _lastUserId = userId;
     _lastToken = token;
     if (_socket != null && _socket!.connected) {
+      _joinDeliveryRoom();
       _logger.w('Socket already connected');
       return;
     }
@@ -66,6 +67,9 @@ class SocketService {
 
     _socket!.onReconnect((attempt) {
       _logger.i('Socket reconnected after $attempt attempts');
+      if (_lastToken != null) {
+        _socket?.io.options?['auth'] = {'token': _lastToken};
+      }
       _joinDeliveryRoom();
       _eventController.add({'type': 'networkRestored', 'data': {}});
     });

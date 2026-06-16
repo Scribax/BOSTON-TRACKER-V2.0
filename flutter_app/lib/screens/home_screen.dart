@@ -92,6 +92,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       } else if (response.success && response.data != null) {
         if (mounted) setState(() => _activeTrip = response.data);
+        final user = await _storageService.getUser();
+        if (_activeTrip != null && user != null && user.name.isNotEmpty) {
+          await _ensureForegroundTracking(userName: user.name);
+        }
       }
     } catch (_) {}
   }
@@ -275,6 +279,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // If has active trip, resume tracking
         if (_activeTrip != null && _activeTrip!.isActive) {
           final user = await _storageService.getUser();
+          await _ensureForegroundTracking(userName: user?.name);
           _startLocationTracking(deliveryName: user?.name);
         }
       } else {
@@ -299,6 +304,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _error = null;
         });
         final user = await _storageService.getUser();
+        await _ensureForegroundTracking(userName: user?.name);
         _startLocationTracking(deliveryName: user?.name);
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -386,6 +392,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     _startTripPolling();
     _startClock();
+  }
+
+  Future<void> _ensureForegroundTracking({String? userName}) async {
+    final user = await _storageService.getUser();
+    final tripId = _activeTrip?.id;
+    if (user == null || tripId == null || user.token == null) return;
+
+    await ForegroundService.saveCredentials(
+      userId: user.id,
+      token: user.token!,
+      baseUrl: ApiService.baseUrl,
+      deliveryName: userName ?? user.name,
+    );
+
+    final started = await ForegroundService.startService(
+      deliveryName: userName ?? user.name,
+      tripId: tripId,
+    );
+    if (started) {
+      ForegroundService.sendCommand('updateMetadata');
+    }
   }
 
   void _startClock() {

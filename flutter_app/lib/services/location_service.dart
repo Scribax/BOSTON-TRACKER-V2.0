@@ -85,17 +85,12 @@ class LocationService {
 
   void _startGpsStream({String? deliveryName}) {
     _positionStream?.cancel();
+    // The persistent foreground notification is handled by ForegroundService.
+    // Geolocator only keeps the GPS stream alive here.
     final settings = AndroidSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 8,
       intervalDuration: const Duration(seconds: 5),
-      foregroundNotificationConfig: ForegroundNotificationConfig(
-        notificationTitle: 'Boston Tracker — En Ruta',
-        notificationText: deliveryName != null
-            ? 'Rastreando a $deliveryName'
-            : 'GPS activo',
-        enableWifiLock: true,
-      ),
     );
     _positionStream = Geolocator.getPositionStream(locationSettings: settings)
         .listen(_onPosition, onError: (e) {

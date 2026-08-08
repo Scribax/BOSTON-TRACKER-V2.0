@@ -3,6 +3,7 @@ import 'dart:math' show pi, sin, cos, sqrt, atan2;
 import 'package:battery_plus/battery_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:logger/logger.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'api_service.dart';
 
 /// LocationService handles GPS tracking and backend communication directly.
@@ -42,6 +43,19 @@ class LocationService {
       if (permission == LocationPermission.denied) return false;
     }
     if (permission == LocationPermission.deniedForever) return false;
+
+    // Request battery optimizations exemption & notification permissions to prevent Android Doze Mode killing the app
+    try {
+      if (await Permission.ignoreBatteryOptimizations.isDenied) {
+        await Permission.ignoreBatteryOptimizations.request();
+      }
+      if (await Permission.notification.isDenied) {
+        await Permission.notification.request();
+      }
+    } catch (e) {
+      _logger.w('Battery/Notification permission check warning: $e');
+    }
+
     return true;
   }
 
@@ -84,52 +98,59 @@ class LocationService {
   void _startGpsStream({String? deliveryName}) {
     _positionStream?.cancel();
     final settings = AndroidSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 8,
-      intervalDuration: const Duration(seconds: 5),
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 3,
+      intervalDuration: const Duration(seconds: 2),
       foregroundNotificationConfig: ForegroundNotificationConfig(
-        notificationTitle: 'Boston Tracker — En Ruta',
+        notificationTitle: 'Boston Tracker — En Ruta 🍔',
         notificationText: deliveryName != null
-            ? 'Rastreando a $deliveryName'
-            : 'GPS activo en segundo plano',
+            ? 'Rastreando a $deliveryName en tiempo real'
+            : 'GPS activo en segundo plano (2s)',
         enableWifiLock: true,
       ),
     );
     _positionStream = Geolocator.getPositionStream(locationSettings: settings)
         .listen(_onPosition, onError: (e) {
-      _logger.e('GPS stream error: $e — restarting in 5s');
-      Future.delayed(const Duration(seconds: 5), () {
+      _logger.e('GPS stream error: $e — restarting in 3s');
+      Future.delayed(const Duration(seconds: 3), () {
         if (_isTracking) _startGpsStream(deliveryName: deliveryName);
       });
     });
   }
 
   void _onPosition(Position p) {
-    if (p.accuracy > 100) return;
+    // Allow initial location fixes to have up to 150m accuracy for faster bootstrap
+    final maxAccuracyAllowed = _validLocations < 3 ? 150.0 : 100.0;
+    if (p.accuracy > maxAccuracyAllowed) return;
 
     double distKm = 0;
     double speedKmh = 0;
+    bool isStationary = false;
 
     if (_lastPosition != null) {
       distKm = _haversine(
         _lastPosition!.latitude, _lastPosition!.longitude,
         p.latitude, p.longitude,
       );
-      if (distKm * 1000 < 5) {
-        _lastPosition = p;
-        return;
+      if (distKm * 1000 < 3) {
+        isStationary = true;
+      } else {
+        final timeDiffHours =
+            p.timestamp.difference(_lastPosition!.timestamp).inSeconds / 3600;
+        if (timeDiffHours > 0) speedKmh = distKm / timeDiffHours;
+        if (speedKmh > 130) return;
+        _totalDistanceKm += distKm;
       }
-      final timeDiffHours =
-          p.timestamp.difference(_lastPosition!.timestamp).inSeconds / 3600;
-      if (timeDiffHours > 0) speedKmh = distKm / timeDiffHours;
-      if (speedKmh > 120) return;
-      _totalDistanceKm += distKm;
     }
 
     speedKmh = p.speed >= 0 ? p.speed * 3.6 : speedKmh;
     if (speedKmh > _maxSpeed) _maxSpeed = speedKmh;
-    _speedSamples.add(speedKmh);
-    if (_speedSamples.length > 10) _speedSamples.removeAt(0);
+    
+    if (!isStationary) {
+      _speedSamples.add(speedKmh);
+      if (_speedSamples.length > 10) _speedSamples.removeAt(0);
+    }
+    
     _validLocations++;
     _lastPosition = p;
 
@@ -141,7 +162,7 @@ class LocationService {
         : 0;
 
     _metricsController.add(TripMetrics(
-      currentSpeed: speedKmh.round(),
+      currentSpeed: isStationary ? 0 : speedKmh.round(),
       averageSpeed: avgSpeed.round(),
       maxSpeed: _maxSpeed.round(),
       totalDistanceM: (_totalDistanceKm * 1000).round(),
@@ -149,20 +170,25 @@ class LocationService {
       validLocations: _validLocations,
     ));
 
-    // Throttle HTTP sends to max once every 5 seconds
+    // High frequency HTTP sends: 2s when moving, 5s heartbeat when stationary
     final now = DateTime.now();
+    final minIntervalSeconds = isStationary ? 5 : 2;
     if (_lastSentTime != null &&
-        now.difference(_lastSentTime!).inSeconds < 5) return;
+        now.difference(_lastSentTime!).inSeconds < minIntervalSeconds) return;
     _lastSentTime = now;
 
+    // Execute API call safely without crashing stream listener
     _apiService.updateLocation(
       latitude: p.latitude,
       longitude: p.longitude,
       accuracy: p.accuracy,
-      speed: speedKmh,
+      speed: isStationary ? 0.0 : speedKmh,
       heading: p.heading,
       batteryLevel: _batteryLevel,
-    );
+    ).catchError((e) {
+      _logger.w('Location HTTP send failed silently: $e');
+      return ApiResponse<void>.error('Network glitch');
+    });
   }
 
   void _startMetricsTimer() {
@@ -207,7 +233,10 @@ class LocationService {
       validLocations: _validLocations,
       latitude: p.latitude,
       longitude: p.longitude,
-    );
+    ).catchError((e) {
+      _logger.w('Metrics HTTP send failed silently: $e');
+      return ApiResponse<void>.error('Network glitch');
+    });
   }
 
   double _haversine(double lat1, double lon1, double lat2, double lon2) {

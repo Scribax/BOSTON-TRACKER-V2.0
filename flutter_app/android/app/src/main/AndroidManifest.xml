@@ -55,6 +55,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Foreground Service for Geolocator (Required for Android 12, 13, 14+) -->
+        <service
+            android:name="com.baseflow.geolocator.stop.ForegroundService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
+import '../config/api_config.dart';
 import '../models/user.dart';
 import '../models/trip.dart';
 import 'storage_service.dart';
@@ -15,7 +16,7 @@ class ApiService {
 
   Stream<void> get onUnauthorized => _unauthorizedController.stream;
 
-  static const String baseUrl = 'http://186.64.123.15:5000/api';
+  static String get baseUrl => ApiConfig.baseUrl;
 
   ApiService(this._storage) {
     _dio = Dio(BaseOptions(

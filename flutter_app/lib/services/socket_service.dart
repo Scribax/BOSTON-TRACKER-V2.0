@@ -1,6 +1,7 @@
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:logger/logger.dart';
 import 'dart:async';
+import '../config/api_config.dart';
 
 class SocketService {
   io.Socket? _socket;
@@ -38,10 +39,10 @@ class SocketService {
       return;
     }
 
-    _logger.i('Connecting to Socket.IO...');
+    _logger.i('Connecting to Socket.IO at ${ApiConfig.socketUrl}...');
 
     _socket = io.io(
-      'http://186.64.123.15:5000',
+      ApiConfig.socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket', 'polling'])
           .setAuth({'token': token})

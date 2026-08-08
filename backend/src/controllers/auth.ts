@@ -69,14 +69,16 @@ export const login = async (
       return;
     }
 
-    // Find user
-    let user: User | null = null;
-
-    if (email) {
-      user = await User.findOne({ where: { email } });
-    } else if (employeeId) {
-      user = await User.findOne({ where: { employeeId } });
-    }
+    // Find user by email or employeeId
+    const identifier = email || employeeId;
+    const user: User | null = await User.findOne({
+      where: {
+        [Op.or]: [
+          { email: identifier },
+          { employeeId: identifier },
+        ],
+      },
+    });
 
     // Verify user and password
     if (!user || !(await user.matchPassword(password))) {

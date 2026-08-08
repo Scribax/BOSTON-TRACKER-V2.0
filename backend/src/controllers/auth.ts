@@ -69,13 +69,13 @@ export const login = async (
       return;
     }
 
-    // Find user by email or employeeId
-    const identifier = email || employeeId;
+    // Find user by email or employeeId (case-insensitive)
+    const identifier = (email || employeeId || '').trim();
     const user: User | null = await User.findOne({
       where: {
         [Op.or]: [
-          { email: identifier },
-          { employeeId: identifier },
+          { email: { [Op.iLike]: identifier } },
+          { employeeId: { [Op.iLike]: identifier } },
         ],
       },
     });

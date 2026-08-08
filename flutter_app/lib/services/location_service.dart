@@ -177,7 +177,17 @@ class LocationService {
         now.difference(_lastSentTime!).inSeconds < minIntervalSeconds) return;
     _lastSentTime = now;
 
-    // Execute API call safely without crashing stream listener
+    final locationPayload = {
+      'latitude': p.latitude,
+      'longitude': p.longitude,
+      'accuracy': p.accuracy,
+      'speed': isStationary ? 0.0 : speedKmh,
+      'heading': p.heading,
+      'batteryLevel': _batteryLevel,
+      'timestamp': p.timestamp.toIso8601String(),
+    };
+
+    // Try sending location to API. If offline, buffer to queue and auto-flush on reconnect.
     _apiService.updateLocation(
       latitude: p.latitude,
       longitude: p.longitude,
@@ -185,10 +195,47 @@ class LocationService {
       speed: isStationary ? 0.0 : speedKmh,
       heading: p.heading,
       batteryLevel: _batteryLevel,
-    ).catchError((e) {
-      _logger.w('Location HTTP send failed silently: $e');
+    ).then((res) {
+      if (res.success) {
+        _flushPendingOfflineLocations();
+      } else {
+        _bufferOfflineLocation(locationPayload);
+      }
+    }).catchError((e) {
+      _logger.w('Location HTTP send failed, saving to offline buffer: $e');
+      _bufferOfflineLocation(locationPayload);
       return ApiResponse<void>.error('Network glitch');
     });
+  }
+
+  final List<Map<String, dynamic>> _offlineQueue = [];
+
+  void _bufferOfflineLocation(Map<String, dynamic> payload) {
+    if (_offlineQueue.length > 1000) _offlineQueue.removeAt(0);
+    _offlineQueue.add(payload);
+    _logger.i('Offline location buffered. Total queued: ${_offlineQueue.length}');
+  }
+
+  Future<void> _flushPendingOfflineLocations() async {
+    if (_offlineQueue.isEmpty) return;
+    _logger.i('Flushing ${_offlineQueue.length} offline locations to server...');
+    final toFlush = List<Map<String, dynamic>>.from(_offlineQueue);
+    _offlineQueue.clear();
+
+    for (final item in toFlush) {
+      try {
+        await _apiService.updateLocation(
+          latitude: item['latitude'] as double,
+          longitude: item['longitude'] as double,
+          accuracy: item['accuracy'] as double,
+          speed: item['speed'] as double,
+          heading: item['heading'] as double,
+          batteryLevel: item['batteryLevel'] as int?,
+        );
+      } catch (e) {
+        _logger.w('Error flushing queued location: $e');
+      }
+    }
   }
 
   void _startMetricsTimer() {

@@ -64,6 +64,8 @@ export interface ActiveDelivery {
   lastSeenAt?: string | null;
   isOnline?: boolean;
   location: LocationUpdate | null;
+  lastLocation?: LocationUpdate | null;
+  totalLocations?: number;
   metrics: TripMetrics | null;
   lastDestination?: DeliveryDestination | null;
   destinationHistory?: DeliveryDestination[];

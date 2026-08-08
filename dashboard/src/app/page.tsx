@@ -331,12 +331,20 @@ export default function TrackingPage() {
               deliveries
                 .filter(d => !search || d.name.toLowerCase().includes(search.toLowerCase()) || d.employeeId.toLowerCase().includes(search.toLowerCase()))
                 .map((delivery) => {
-                  const lastUpdate = delivery.location?.timestamp ? new Date(delivery.location.timestamp) : null;
+                  const loc = delivery.lastLocation || delivery.location;
+                  const lastUpdate = loc?.timestamp ? new Date(loc.timestamp) : null;
                   const minsWithoutSignal = lastUpdate ? Math.floor((Date.now() - lastUpdate.getTime()) / 60000) : null;
-                  const noSignal = minsWithoutSignal !== null && minsWithoutSignal >= 3;
+                  const noSignal = minsWithoutSignal !== null && minsWithoutSignal >= 3 && (delivery.totalLocations ?? 0) > 0;
+                  const isWaitingFirstLocation = !loc && (delivery.totalLocations ?? 0) === 0;
                   return (
                     <div key={delivery.id}>
-                      {noSignal && (
+                      {isWaitingFirstLocation && (
+                        <div className="mb-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-1.5 text-xs text-blue-700">
+                          <Radio className="w-3 h-3 animate-pulse" />
+                          Esperando primer reporte GPS de la app...
+                        </div>
+                      )}
+                      {!isWaitingFirstLocation && noSignal && (
                         <div className="mb-1 px-2 py-1 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center gap-1.5 text-xs text-yellow-700">
                           <WifiOff className="w-3 h-3" />
                           Sin señal GPS hace {minsWithoutSignal} min

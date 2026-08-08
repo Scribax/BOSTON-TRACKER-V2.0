@@ -67,7 +67,7 @@ app.set('trust proxy', 1);
 // Socket.io setup with proper typing
 const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(server, {
   cors: {
-    origin: CORS_ORIGINS,
+    origin: true,
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -80,7 +80,7 @@ const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(server
 app.use(helmet());
 app.use(
   cors({
-    origin: CORS_ORIGINS,
+    origin: true,
     credentials: true,
   })
 );

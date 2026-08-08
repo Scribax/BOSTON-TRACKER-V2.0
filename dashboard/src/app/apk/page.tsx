@@ -21,9 +21,12 @@ export default function ApkPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [copied, setCopied] = useState(false);
-  const downloadUrl = 'http://186.64.123.15:5000/api/apk/download/latest';
+  const [downloadUrl, setDownloadUrl] = useState('http://186.64.123.103/api/apk/download/latest');
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setDownloadUrl(`${window.location.origin}/api/apk/download/latest`);
+    }
     fetchVersions();
   }, []);
 
